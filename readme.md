@@ -47,6 +47,7 @@ Disks are formated and partitioned, mounted using fstab in to `/mnt`.
   
   <details>
   <summary><h5>disks-fstab-entries.sh</h5></summary>
+  
   ```bash
   #!/usr/bin/env bash
   # Generates a nicely formatted fstab for ext4 partitions and a MergerFS pool
@@ -73,8 +74,9 @@ Disks are formated and partitioned, mounted using fstab in to `/mnt`.
   echo
   echo "# /mnt/disk_* /mnt/pool fuse.mergerfs defaults,allow_other,use_ino,category.create=epmfs 0 0"
   ```
+
   </details>
-  
+
   It includes the size and the serial number of the disks,
   as well as a commented out mergerfs section that can be used later.
   * Make the script executable: `chmod +x disks-fstab-entries.sh`
