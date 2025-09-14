@@ -44,6 +44,7 @@ Disks are formated and partitioned, mounted using fstab in to `/mnt`.
   `sudo mkdir -p /mnt/disk_1 /mnt/disk_2 /mnt/disk_3`
 * Edit **fstab** to mount the drives.<br>
   To make things easier, here’s a script that **generates the fstab entries**.<br>
+  
   <details>
   <summary><h5>disks-fstab-entries.sh</h5></summary>
   ```bash
@@ -73,6 +74,7 @@ Disks are formated and partitioned, mounted using fstab in to `/mnt`.
   echo "# /mnt/disk_* /mnt/pool fuse.mergerfs defaults,allow_other,use_ino,category.create=epmfs 0 0"
   ```
   </details>
+  
   It includes the size and the serial number of the disks,
   as well as a commented out mergerfs section that can be used later.
   * Make the script executable: `chmod +x disks-fstab-entries.sh`
@@ -125,7 +127,11 @@ I like [cfdisk](https://i.imgur.com/6iwjRHE.mp4),
 ![spindown-gif](https://i.imgur.com/QrhQWQc.gif)
 
 Saves \~3W of power per disk, heat, wear and noise,... but the first time
-accessing the storage takes \~10 seconds..<br> 
+accessing the storage takes \~10 seconds..
+
+Unformated drives plugged will likely spin down on their own by their firmware,
+but once mounted most distros do not spin down HDDs unless some configuration
+is done.
 
 What's required:
 
