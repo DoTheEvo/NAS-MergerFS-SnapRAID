@@ -6,50 +6,49 @@ WORK IN PROGRESS WORK IN PROGRESS WORK IN PROGRESS
 
 ![duf-pic](https://i.imgur.com/HRD6Al1.png)
 
-# Overview
+A **NAS** that offers:
 
-If one wants a NAS that allows mixed size HDDs, with parity, easy growth
-and linux terminal is no problem.<br>
-But beware - It is **so much more work** than just spinnig trueNAS or OMV.
+  * **Mixing** HDDs of various sizes.
+  * Trivial to **add** more storage at any time.
+  * One **parity drive** protects all data drives.
+  * Free and **open source**.
 
-### Pros:
-
-  * Mixing HDDs of various sizes.
-  * Trivial addition of more storage at any time.
-  * Works at file level, where the files are spread across the disks,
-    but perfectly accessible. Meaning you can litearlly pull a drive out,
-    plug it into another PC and have full access to the data stored there.
-  * Policies allow various methods how to spread files across the disks.
-    Default being that files in the same directory end up on the same drive.
-  * Power efficient, only the drive with the data being accessed spins up.
-  * SnapRAID parity drive protects unlimited number of data drives.
-  * Good performance.
-  * Free and open source.
+But:
+  
+  * It's **more work** than just spinnig TrueNAS or OMV.<br>
+    Though steps alone are simple, straightforward, but overal it's still a lot.
+  * Requires solid **knowledge** of linux and the terminal.
+  * SnapRAID **isn't realtime**.<br>
+    Can recover dead disk only to the state from the last snapraid sync run,
+    usually every 24h, and only if the data on the other drives did not change much.
+  * Bad for **freqently changed** data, or millions of small files.<br>
+    But that means ideal for media - Movies, Shows, Music, Photos, Audiobooks,...
 
 ### Chapters:
 
 * Linux and disks preparation
 * MergerFS - merge disks in to one mount point
-* SnapRAID - add a parity drive to prevent data loss on a disk failure
+* SnapRAID - adding a parity drive to prevent data loss on a disk failure
 * Sharing the storage - SMB, NFS, iSCSI
 * Spinning down the HDDs
+* Hardware
 
-## Linux and disks preparation
+# Linux and disks preparation
 
 ![linux-distros](https://i.imgur.com/fUUP3VA.png)
 
-Have a linux installed on the machine.<br>
+Have a linux installed on a machine.<br>
 I use Arch, installing it using archinstall,
 and have [an ansible playbooks](https://github.com/DoTheEvo/ansible-arch)
 to set it up how I like it.
 
-Now to format and partition the disks and mount them using fstab.
+Now format and partition disks and mount them using fstab.
 
 * Create a new partition **table** on each disk.<br>
   `sudo parted /dev/sdb --script mklabel gpt`<br>
   `sudo parted /dev/sdc --script mklabel gpt`<br>
   `sudo parted /dev/sdd --script mklabel gpt`<br>
-* **Partition** the disks.<br>
+* **Partition** disks.<br>
   `sudo parted /dev/sdb --script mkpart primary ext4 0% 100%`<br>
   `sudo parted /dev/sdc --script mkpart primary ext4 0% 100%`<br>
   `sudo parted /dev/sdd --script mkpart primary ext4 0% 100%`<br>
@@ -57,11 +56,10 @@ Now to format and partition the disks and mount them using fstab.
   `sudo mkfs.ext4 /dev/sdb1 -L disk_1`<br>
   `sudo mkfs.ext4 /dev/sdc1 -L disk_2`<br>
   `sudo mkfs.ext4 /dev/sdd1 -L disk_3`<br>
-* Create **directories** where the drives will be mounted.<br>
+* Create **directories** where drives will be mounted.<br>
   `sudo mkdir -p /mnt/disk_1 /mnt/disk_2 /mnt/disk_3`
-* Edit **fstab** to mount the drives.<br>
-  To make things easier, here’s a script that **generates the fstab entries**.<br>
-  
+* Edit **fstab** to mount drives.<br>
+  To make things easier, here’s a script that **generates the fstab entries**.
   <details>
   <summary><h5>disks-fstab-entries.sh</h5></summary>
 
@@ -71,7 +69,7 @@ Now to format and partition the disks and mount them using fstab.
   # Includes size and serial number for reference
 
   echo "# ======================================================"
-  echo "# Individual ext4 disks"
+  echo "# Individual disks"
   echo "# ======================================================"
   echo
 
@@ -89,7 +87,7 @@ Now to format and partition the disks and mount them using fstab.
   echo "# MergerFS pool combining the above disks"
   echo "# ======================================================"
   echo
-  echo "# /mnt/disk_* /mnt/pool fuse.mergerfs defaults,allow_other,use_ino,category.create=epmfs 0 0"
+  echo "# /mnt/disk_* /mnt/pool fuse.mergerfs defaults,category.create=pfrd,func.getattr=newest,minfreespace=20G,fsname=mergerfs 0 0"
   ```
 
   </details>
@@ -98,7 +96,7 @@ Now to format and partition the disks and mount them using fstab.
   as well as a commented out mergerfs section that can be used later.
   * Make the script executable: `chmod +x disks-fstab-entries.sh`
   * Run it: `./disks-fstab-entries.sh`<br>
-    It echoes stuff in to the terminal for you to copy/paste in to fstab.
+    It echoes stuff into the terminal for you to copy/paste into fstab.
   * Remove the lines you dont want, **edit the mount points** as needed
   since they all are set to `/mnt/disk_X` 
 
@@ -119,9 +117,8 @@ Merges disks of various sizes in to one pool.<br>
 * Think of it as a **virtual mount point**, not a filesystem.
 * Works at the **file level**, as oppose to the block level, and uses **fuse**
   in **user space**, as oppose to be living in the kernel space.
-* There is **NO redundancy**, MergerFS is all about just merging disk space.
-* Ideal for media storage - pictures, music, videos,... 
-  for larger files that rarely change, as oppose to a millions of small files.
+* There is **NO redundancy**, MergerFS is all about just merging disk space.<br>
+  That's why we use SnapRAID later.
 * Simple setup and configuration with a single line in `/etc/fstab`
 * Easy to add drives, no rebuild time.
 * Written in C++ and C.
@@ -135,16 +132,67 @@ All your disks are formated, mounted and ready.
 * Create a directory for the merged mount point.<br>
   `sudo mkdir /mnt/pool`<br>
 * edit the fstab, add mergerfs mount definition.<br>
-  The `disk*` uses wildcard to catch all 
+  The `disk_*` is a wildcard that catches all desired disks mounts.
   ```
-  /mnt/disk_* /mnt/pool fuse.mergerfs cache.files=partial,dropcacheonclose=true,ignorepponrename=true,allow_other,use_ino,category.create=epmfs,minfreespace=10G,fsname=mergerfs,defaults 0 0
-  /mnt/disk_* /mnt/pool fuse.mergerfs defaults,allow_other,use_ino,category.create=epmfs 0 0
+  /mnt/disk_* /mnt/pool fuse.mergerfs defaults,category.create=pfrd,func.getattr=newest,minfreespace=20G,fsname=mergerfs 0 0
   ```
 * Mount it.<br>
   `sudo mount /mnt/pool`
 * Take ownership of the new mount `sudo chown $USER:$USER /mnt/pool`<br>
 
-The fstab
+<details>
+<summary><h3>MergerFS policies</h3></summary>
+
+* [The official docs](https://trapexit.github.io/mergerfs/latest/config/functions_categories_policies/)
+
+A major aspect of mergerfs is picking the policy that decides **how the data
+are spread** across the drives. 
+Reading the official documentation is a **must do**, but to give some idea...
+
+Two types
+
+  * **path preserving** - the top directory anchors everything to a specific
+    drive. Side effect is that if a disk gets full the new write in to
+    that directory fails. You you can also use one of the less strict
+    path preserving polices, the ones starting with `msp...` that will
+    start putting stuff to another drive instead of failing.
+  * **not path preserving** - data go to a disk with the most free space,
+    or with the least used space, or disk is picked randomly,
+    or some variation. The directories structure plays no role.
+
+The **default** policy is `pfrd` which is **not** path preserving.<br>
+Picks disk randomly, but the available free space affects the odds.
+
+#### Mixing policies
+
+MergerFS offers fine control over policies and one can have different policy
+for directories and for files. 
+
+```
+/mnt/disk_* /mnt/pool fuse.mergerfs defaults,func.create=eppfrd,func.mkdir=pfrd,func.getattr=newest,minfreespace=20G,fsname=mergerfs 0 0
+```
+
+* `func.create=msppfrd` - path preserving for files
+* `func.mkdir=pfrd` - directories are spread randomly
+
+Kinda like the idea of having stuff grouped by a directory, but not all the way
+to the top, just the parent directory. Meaning that files that are together
+in the same directory end up on the same disk, but directories themselves
+are spread around.<br>
+Feels like this makes the best use of the aspect of mergerfs where you
+get to keep the data on surviving drives after a failure.<br>
+But it kinda depends on the type of data you have.
+
+  * Shows, music, audiobooks,... benefit from this appraoch as just
+    having some of the files of a season, or audiobok or an album same
+    as not having them at all.
+  * Photos, documents,.. here this appraoch might be worse, as a disk failure
+    loses you entire year of photos or an entire vacation because photos were
+    in a directory titled "2019" and "Vacation Iceland". Which might
+    be worse than having at least some of them because they were
+    spread across drives.
+
+</details>
 
 # SnapRAID
 
@@ -154,23 +202,25 @@ The fstab
 * [Arch Wiki](https://wiki.archlinux.org/title/SnapRAID)
 
 Provides protection against disk failure and bitrot.<br> 
-Works at file level, not disk or block level.<br>
-Unlike regular raid that is constant, snapraid needs to have scheduled runs,
-usually once every 24 hours and you have ability to return to the state
-from the last run.
+Works at file level, not disk or block level. Unlike regular raid that is
+constant, snapraid needs to have scheduled syncs. Usually once every 24 hours.<br>
+In case of a disk failure, you are able to recover data from the last sync run,
+but only if the data on the other drives didn't change much as parity is
+counted against content of all data drives.<br>
+This behavior makes it good only for data that do not change much,
+so it's popular for media servers - Good for media storage - 
+Movies, Shows, Music, Photos, Audiobooks,...
 
-Good for media storage - movies, shows, music, photos.
-
----
+### SnapRAID setup
 
 * install snapraid<br>
   `yay snapraid`
 * Create `/etc/snapraid.conf`
   ```bash
-  # Parity file
+  # Parity file - disk
   parity /mnt/parity/snapraid.parity
 
-  # Data disks
+  # Data disks, the order matters!
   disk disk_1 /mnt/disk_1
   disk disk_2 /mnt/disk_2
   disk disk_3 /mnt/disk_3
@@ -252,7 +302,8 @@ Good for media storage - movies, shows, music, photos.
 * enable the timer<br>
   `sudo systemctl enable --now snapraid-sync-run-maint.timer.timer`
 
-#### logrotate
+<details>
+<summary><h4>Logrotate</h4></summary>
 
 To prevent growth of the log file.
 
@@ -269,14 +320,18 @@ To prevent growth of the log file.
   }
   ```
 Can do dry run to see what it would do `sudo logrotate -d /etc/logrotate.conf`
+
 </details>
 
+---
+---
 
-### SnapRAID Notifications
+
+<details>
+<summary><h4>SnapRAID Notifications</h4></summary>
 
 I use [ntfy](https://github.com/DoTheEvo/selfhosted-apps-docker/tree/master/gotify-ntfy-signal)
-for push notifications.
-
+for push notifications.<br>
 Create a new systemd unit file that will send the notification
 to your ntfy server.
 
@@ -305,6 +360,11 @@ OnSuccess=ntfy@success-%p.service
 Type=oneshot
 ExecStart=/opt/snapraid-sync-run-maint.sh
 ```
+
+</details>
+
+---
+---
 
 
 <details>
@@ -528,3 +588,4 @@ Can do dry run to see what it would do `sudo logrotate -d /etc/logrotate.conf`
 * https://perfectmediaserver.com/03-installation/manual-install-ubuntu/
 * https://thenomadcode.tech/mergerfs-snapraid-is-the-new-raid-5
 * https://zackreed.me/snapraid-split-parity-sync-script/
+* https://www.youtube.com/watch?v=Yt67zz9p0FU
