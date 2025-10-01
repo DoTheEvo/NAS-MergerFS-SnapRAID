@@ -110,35 +110,63 @@ Check if all is fine with `lsblk` and `lsblk -f` and `duf` or `dysk`.
 * [Github](https://github.com/trapexit/mergerfs)
 * [The documentation.](https://trapexit.github.io/mergerfs/)
 
-Merges disks of various sizes in to one pool.<br>
+Merges disks of various sizes in to one combined pool.
 
-* Files are just simply spread across the disks and are **plainly accessible**
-  even if a disk would be pulled out and placed in an another machine.
+* When writing to that pool, files are just simply spread across the disks
+  and are **plainly accessible**, even if any of the disks would be pulled
+  out and placed in another machine.
 * Think of it as a **virtual mount point**, not a filesystem.
 * Works at the **file level**, as oppose to the block level, and uses **fuse**
   in **user space**, as oppose to be living in the kernel space.
-* There is **NO redundancy**, MergerFS is all about just merging disk space.<br>
-  That's why we use SnapRAID later.
-* Simple setup and configuration with a single line in `/etc/fstab`
-* Easy to add drives, no rebuild time.
+* There is **NO redundancy, NO protection.** MergerFS is all about just
+  merging disk space. That's why we use SnapRAID later.
+* Very **simple setup** and configuration with a single line in `/etc/fstab`
+* **Easy to add drives**, even ones already containing data. No rebuild time.
 * Written in C++ and C.
 
 ### MergerFS setup
 
 All your disks are formated, mounted and ready.
 
-* Install mergerfs<br>
-  `yay mergerfs`
-* Create a directory for the merged mount point.<br>
+* **Install** mergerfs.
+* Create a directory for the **final mount point**.<br>
   `sudo mkdir /mnt/pool`<br>
-* edit the fstab, add mergerfs mount definition.<br>
-  The `disk_*` is a wildcard that catches all desired disks mounts.
+* **edit the fstab**, add mergerfs mount definition.<br>
   ```
   /mnt/disk_* /mnt/pool fuse.mergerfs defaults,category.create=pfrd,func.getattr=newest,minfreespace=20G,fsname=mergerfs 0 0
   ```
-* Mount it.<br>
+* Mount it, or reboot.<br>
   `sudo mount /mnt/pool`
-* Take ownership of the new mount `sudo chown $USER:$USER /mnt/pool`<br>
+* **Take ownership** of the new mount `sudo chown $USER:$USER /mnt/pool`<br>
+  The underlying disks should stay owned by root.
+* **Done**.
+
+<details>
+<summary>**fstab mount options explained**</summary>
+
+* `/mnt/disk_*` - is a wildcard that catches all desired disks mounts.<br>
+  Could also be explicitly written *"/mnt/disk_1:/mnt/disk_2:/mnt/disk_3"*
+* `/mnt/pool` - where to mount the final combined disk space
+* `fuse.mergerfs` - defines it as a mergerfs fuse union "filesystem"
+* `defaults` - bunch of default fstab mount options
+* `category.create=pfrd` - sets create policy to a random distribution,
+  but the available free space affects the odds.
+* `func.getattr=newest` - if situation happens where there are two versions
+  of the same file, this defines which version to pick - newest, it's recommended.
+* `minfreespace=20G` - disks that have less than 20GB will not be picked
+  to store new files, saves the space for metadata and whatnot.
+* `fsname=mergerfs` - just defines what name to show in info/disk utilities
+* `0 0` - the first zero is some legacy backup dump, and second is about fsck
+  on boot. Since mergerfs is union filesystem no fsck for it.
+
+When looking around the internet there are other mount options being used,
+but some digging shown that some were
+[deprecated](https://trapexit.github.io/mergerfs/latest/config/deprecated_options/)
+or were made in to default, or were not wise to pick in the first place.<br>
+Of note is that there is no [caching](https://trapexit.github.io/mergerfs/latest/config/cache/)
+in this setup.
+
+</details>
 
 <details>
 <summary><h3>MergerFS policies</h3></summary>
@@ -151,21 +179,21 @@ Reading the official documentation is a **must do**, but to give some idea...
 
 Two types
 
-  * **path preserving** - the top directory anchors everything to a specific
+  * **Path Preserving** - The top directory anchors everything to a specific
     drive. Side effect is that if a disk gets full the new write in to
     that directory fails. You you can also use one of the less strict
     path preserving polices, the ones starting with `msp...` that will
     start putting stuff to another drive instead of failing.
-  * **not path preserving** - data go to a disk with the most free space,
+  * **Not Path Preserving** - Data go to a disk with the most free space,
     or with the least used space, or disk is picked randomly,
     or some variation. The directories structure plays no role.
 
-The **default** policy is `pfrd` which is **not** path preserving.<br>
-Picks disk randomly, but the available free space affects the odds.
+The **default** policy is `pfrd` which picks disk randomly,
+but the available free space affects the odds.
 
 #### Mixing policies
 
-MergerFS offers fine control over policies and one can have different policy
+MergerFS offers fine control and one can have different policy
 for directories and for files. 
 
 ```
@@ -183,12 +211,12 @@ Feels like this makes the best use of the aspect of mergerfs where you
 get to keep the data on surviving drives after a failure.<br>
 But it kinda depends on the type of data you have.
 
-  * Shows, music, audiobooks,... benefit from this appraoch as just
-    having some of the files of a season, or audiobok or an album same
+  * Shows, music, audiobooks,... benefit from this approach as just
+    having some of the files of a season, or audiobok or an album is the same
     as not having them at all.
-  * Photos, documents,.. here this appraoch might be worse, as a disk failure
+  * Photos, documents,.. here this approach might be worse, as a disk failure
     loses you entire year of photos or an entire vacation because photos were
-    in a directory titled "2019" and "Vacation Iceland". Which might
+    in a directory titled *"2019"* and *"Vacation Iceland"*. Which might
     be worse than having at least some of them because they were
     spread across drives.
 
@@ -203,21 +231,21 @@ But it kinda depends on the type of data you have.
 
 Provides protection against disk failure and bitrot.<br> 
 Works at file level, not disk or block level. Unlike regular raid that is
-constant, snapraid needs to have scheduled syncs. Usually once every 24 hours.<br>
+constant ever present, snapraid needs to have scheduled syncs. Usually once every 24 hours.<br>
 In case of a disk failure, you are able to recover data from the last sync run,
 but only if the data on the other drives didn't change much as parity is
 counted against content of all data drives.<br>
-This behavior makes it good only for data that do not change much,
-so it's popular for media servers - Good for media storage - 
-Movies, Shows, Music, Photos, Audiobooks,...
+This behavior makes it good only for data that do not change often,
+like movies, shows, music, photos, audiobooks, videos,...
+
+Of note is that snapraid is saving parity information in to a single.
 
 ### SnapRAID setup
 
-* install snapraid<br>
-  `yay snapraid`
+* install snapraid.
 * Create `/etc/snapraid.conf`
   ```bash
-  # Parity file - disk
+  # Parity file on a dedicated parity disk
   parity /mnt/parity/snapraid.parity
 
   # Data disks, the order matters!
@@ -243,7 +271,11 @@ Movies, Shows, Music, Photos, Audiobooks,...
 
 ### SnapRAID Automation
 
-* create a file `/opt/snapraid-sync-run-maint.sh`<br>
+To have sync executed every 24 hours.<br>
+To have scrub executed every month, checking 15% of the data.
+To have all sata disk smart check executed every month, checking 15% of the data.
+
+* create a file `/opt/snapraid-sync-and-maintenance.sh`<br>
   ```bash
   #!/bin/bash
   set -euo pipefail
@@ -253,43 +285,46 @@ Movies, Shows, Music, Photos, Audiobooks,...
 
   echo "=== SnapRAID job started at $(date) ==="
 
-  # 1. Daily sync (skip files modified in last 30 min)
+  # 1. Daily sync
   /usr/bin/snapraid sync
 
-  # 2. Monthly partial scrub (10%) on the 1st
+  # 2. Monthly partial scrub (15%) on the 1st
   if [[ $(date +%d) -eq 01 ]]; then
-      /usr/bin/snapraid scrub -p 10
+      /usr/bin/snapraid scrub -p 15
   fi
 
-  # 3. SMART check on the 1st of each month
+  # 3. SMART check on the 15th of each month
   if [[ $(date +%d) -eq 15 ]]; then
       echo "--- SMART check ---"
-      for disk in /dev/sd?; do
-          echo "SMART for $disk"
-          /usr/bin/smartctl -H "$disk"
+      /usr/bin/smartctl --scan | awk '{print $1}' | while read disk; do
+          # Only proceed if the device exists and is a block device
+          if [ -e "$disk" ] && [ -b "$disk" ]; then
+              echo "SMART check for $disk"
+              /usr/bin/smartctl -H "$disk"
+          fi
       done
   fi
 
   echo "=== SnapRAID job finished at $(date) ==="
   ```
 
-* Make it executable `sudo chmod +x /opt/snapraid-sync-run-maint.sh`
+* Make it executable `sudo chmod +x /opt/snapraid-sync-and-maintenance.sh`
 * create a systemd unit and a timer files.
 
-  `/etc/systemd/system/snapraid-sync-run-maint.service`
+  `/etc/systemd/system/snapraid-sync-and-maintenance.service`
   ```bash
   [Unit]
-  Description=SnapRAID sync, scrub, smart
+  Description=SnapRAID sync, scrub, smart-check
 
   [Service]
   Type=oneshot
-  ExecStart=/opt/snapraid-sync-run-maint.sh
+  ExecStart=/opt/snapraid-sync-and-maintenance.sh
   ```
 
-  `/etc/systemd/system/snapraid-sync-run-maint.timer`
+  `/etc/systemd/system/snapraid-sync-and-maintenance.timer`
   ```bash
   [Unit]
-  Description=Run SnapRAID sync, scrub, smart,... nightly at 01:30
+  Description=SnapRAID sync, scrub, smart-check
 
   [Timer]
   OnCalendar=*-*-* 01:30:00
@@ -300,7 +335,7 @@ Movies, Shows, Music, Photos, Audiobooks,...
   ```
 
 * enable the timer<br>
-  `sudo systemctl enable --now snapraid-sync-run-maint.timer.timer`
+  `sudo systemctl enable --now snapraid-sync-and-maintenance.timer.timer`
 
 <details>
 <summary><h4>Logrotate</h4></summary>
@@ -349,7 +384,7 @@ ExecStart=/bin/curl --fail --retry 3 --retry-delay 30 -d "%i | %H" https://ntfy.
 
 Edit the snapraid unit file, adding OnFailure and OnSuccess actions.
 
-`snapraid-sync-run-maint.service`
+`snapraid-sync-and-maintenance.service`
 ```bash
 [Unit]
 Description=SnapRAID sync, scrub, smart
@@ -358,7 +393,7 @@ OnSuccess=ntfy@success-%p.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/snapraid-sync-run-maint.sh
+ExecStart=/opt/snapraid-sync-and-maintenance.sh
 ```
 
 </details>
