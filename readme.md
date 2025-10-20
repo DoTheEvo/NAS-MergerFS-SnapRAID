@@ -22,7 +22,7 @@ But:
     Can recover dead disk only to the state from the last snapraid sync run,
     usually every 24h, and only if the data on the other drives did not change much.
   * Bad for **freqently changed** data, or millions of small files.<br>
-    But that means ideal for media - Movies, Shows, Music, Photos, Audiobooks,...
+    But that means ideal for media - movies, shows, music, photos, audiobooks,...
 
 ### Chapters:
 
@@ -58,7 +58,7 @@ Now format and partition disks and mount them using fstab.
   `sudo mkfs.ext4 /dev/sdd1 -L disk_3`<br>
 * Create **directories** where drives will be mounted.<br>
   `sudo mkdir -p /mnt/disk_1 /mnt/disk_2 /mnt/disk_3`
-* Edit **fstab** to mount drives.<br>
+* Edit **fstab** to mount drives on boot.<br>
   To make things easier, here’s a script that **generates the fstab entries**.
   <details>
   <summary><h5>disks-fstab-entries.sh</h5></summary>
@@ -115,14 +115,15 @@ Merges disks of various sizes in to one combined pool.
 * When writing to that pool, files are just simply spread across the disks
   and are **plainly accessible**, even if any of the disks would be pulled
   out and placed in another machine.
-* Think of it as a **virtual mount point**, not a filesystem.
 * Works at the **file level**, as oppose to the block level, and uses **fuse**
   in **user space**, as oppose to be living in the kernel space.
+* Think of it as a **virtual mount point**, not a filesystem.
 * There is **NO redundancy, NO protection.** MergerFS is all about just
-  merging disk space. That's why we use SnapRAID later.
+  merging disk space.<br>
+  That's why we use SnapRAID later.
 * Very **simple setup** and configuration with a single line in `/etc/fstab`
 * **Easy to add drives**, even ones already containing data. No rebuild time.
-* Written in C++ and C.
+* Written in C and C++.
 
 ### MergerFS setup
 
@@ -142,7 +143,7 @@ All your disks are formated, mounted and ready.
 * **Done**.
 
 <details>
-<summary>**fstab mount options explained**</summary>
+<summary>**used fstab mount options explained**</summary>
 
 * `/mnt/disk_*` - is a wildcard that catches all desired disks mounts.<br>
   Could also be explicitly written *"/mnt/disk_1:/mnt/disk_2:/mnt/disk_3"*
@@ -152,30 +153,32 @@ All your disks are formated, mounted and ready.
 * `category.create=pfrd` - sets create policy to a random distribution,
   but the available free space affects the odds.
 * `func.getattr=newest` - if situation happens where there are two versions
-  of the same file, this defines which version to pick - newest, it's recommended.
+  of the same file on different disks, this defines which version
+  to pick - newest, it's recommended.
 * `minfreespace=20G` - disks that have less than 20GB will not be picked
   to store new files, saves the space for metadata and whatnot.
 * `fsname=mergerfs` - just defines what name to show in info/disk utilities
 * `0 0` - the first zero is some legacy backup dump, and second is about fsck
   on boot. Since mergerfs is union filesystem no fsck for it.
 
-When looking around the internet there are other mount options being used,
-but some digging shown that some were
+Looking around the internet there are other mount options being used,
+but digging deeper shown that some were
 [deprecated](https://trapexit.github.io/mergerfs/latest/config/deprecated_options/)
-or were made in to default, or were not wise to pick in the first place.<br>
+or were made in to defaults, or were not wise to pick in the first place.<br>
 Of note is that there is no [caching](https://trapexit.github.io/mergerfs/latest/config/cache/)
 in this setup.
 
 </details>
 
 <details>
-<summary><h3>MergerFS policies</h3></summary>
+<summary><h3>MergerFS policies details</h3></summary>
 
 * [The official docs](https://trapexit.github.io/mergerfs/latest/config/functions_categories_policies/)
 
 A major aspect of mergerfs is picking the policy that decides **how the data
 are spread** across the drives. 
-Reading the official documentation is a **must do**, but to give some idea...
+Reading the official documentation is a **must do** if planning to move away
+from the defaults... but to give some quick idea.
 
 Two types
 
@@ -191,7 +194,7 @@ Two types
 The **default** policy is `pfrd` which picks disk randomly,
 but the available free space affects the odds.
 
-#### Mixing policies
+#### Possibility to mix policies
 
 MergerFS offers fine control and one can have different policy
 for directories and for files. 
@@ -229,7 +232,7 @@ But it kinda depends on the type of data you have.
 * [The documentation.](https://www.snapraid.it/manual)
 * [Arch Wiki](https://wiki.archlinux.org/title/SnapRAID)
 
-Provides protection against disk failure and bitrot.<br> 
+Provides parity protection against disk failure and bitrot.<br> 
 Works at file level, not disk or block level. Unlike regular raid that is
 constant ever present, snapraid needs to have scheduled syncs. Usually once every 24 hours.<br>
 In case of a disk failure, you are able to recover data from the last sync run,
@@ -238,7 +241,7 @@ counted against content of all data drives.<br>
 This behavior makes it good only for data that do not change often,
 like movies, shows, music, photos, audiobooks, videos,...
 
-Of note is that snapraid is saving parity information in to a single.
+Of note is that snapraid is saving parity information in to a single file.
 
 ### SnapRAID setup
 
@@ -269,44 +272,84 @@ Of note is that snapraid is saving parity information in to a single.
   ```
 * `sudo snapraid sync` - the first initial sync
 
-### SnapRAID Automation
+### SnapRAID Automation and notifications
 
-To have sync executed every 24 hours.<br>
-To have scrub executed every month, checking 15% of the data.
-To have all sata disk smart check executed every month, checking 15% of the data.
+A script that runs daily and will execute sync, scrub, smartctl
+and do some checks and sends ntfy push notifications.<br>
+It should be pretty readable to see what's going on.
 
 * create a file `/opt/snapraid-sync-and-maintenance.sh`<br>
+  <details>
+  <summary><h5>snapraid-sync-and-maintenance.sh</h5></summary>
   ```bash
   #!/bin/bash
-  set -euo pipefail
+  set -euo pipefail   # strict mode for bash
 
-  LOG="/var/log/snapraid.log"
-  exec >> "$LOG" 2>&1
+  # -------------------------------------------------------------
+  # Configuration
+  # -------------------------------------------------------------
+  NTFY_TOPIC="https://ntfy.example.com/NAS" 
+  MERGERFS_MOUNT="/mnt/pool"                
+  SNAPRAID_CONF="/etc/snapraid.conf"
 
-  echo "=== SnapRAID job started at $(date) ==="
+  # -------------------------------------------------------------
+  # Send ntfy push notification and log to journal function
+  # -------------------------------------------------------------
+  notify() {
+      local msg="$1"
+      printf "%b" "$msg" | /usr/bin/curl -s -d @- "$NTFY_TOPIC" || true
+      echo -e "$msg" # To also log to systemd journal
+  }
 
-  # 1. Daily sync
-  /usr/bin/snapraid sync
+  echo "=== SnapRAID maintenance script started $(date +"%F %T") ==="
+  
+  # -------------------------------------------------------------
+  # Check if if mergerfs mount point exists
+  # -------------------------------------------------------------
+  if ! mountpoint -q "$MERGERFS_MOUNT"; then
+      notify "❌ mergerfs mount $MERGERFS_MOUNT not accessible!"
+      exit 1
+  fi
 
-  # 2. Monthly partial scrub (15%) on the 1st
+  # -------------------------------------------------------------
+  # Do SnapRAID sync
+  # -------------------------------------------------------------
+  if ! sync_output=$(snapraid sync 2>&1); then
+      notify "❌ SnapRAID sync failed:\n$sync_output"
+      exit 1
+  fi
+
+  # -------------------------------------------------------------
+  # Do partial scrub, 15% of data once a month on the 1st
+  # -------------------------------------------------------------
   if [[ $(date +%d) -eq 01 ]]; then
-      /usr/bin/snapraid scrub -p 15
+      if ! scrub_output=$(snapraid scrub -p 15 2>&1); then
+          notify "❌ SnapRAID scrub failed:\n$scrub_output"
+      fi
   fi
 
-  # 3. SMART check on the 15th of each month
-  if [[ $(date +%d) -eq 15 ]]; then
-      echo "--- SMART check ---"
-      /usr/bin/smartctl --scan | awk '{print $1}' | while read disk; do
-          # Only proceed if the device exists and is a block device
-          if [ -e "$disk" ] && [ -b "$disk" ]; then
-              echo "SMART check for $disk"
-              /usr/bin/smartctl -H "$disk"
+  # -------------------------------------------------------------
+  # SMART health check once a week on sunday
+  # -------------------------------------------------------------
+  if [[ $(date +%u) -eq 7 ]]; then
+      while read -r disk; do
+          disk=$(echo "$disk" | xargs) # Trim whitespace
+          if [[ -e "$disk" && -b "$disk" ]]; then
+              echo "$(date +"%F %T") SMART check for $disk"
+              if ! smartctl -H "$disk" | grep -Eiq "PASSED|OK"; then
+                  notify "❌ SMART health check failed for $disk"
+              fi
           fi
-      done
+      done < <(smartctl --scan | awk '{print $1}')
   fi
 
-  echo "=== SnapRAID job finished at $(date) ==="
+  # -------------------------------------------------------------
+  # Send success ntfy notification
+  # -------------------------------------------------------------
+  notify "✅ SnapRAID sync and maintenance completed successfully $(date +"%F %T")"
   ```
+
+  </details>
 
 * Make it executable `sudo chmod +x /opt/snapraid-sync-and-maintenance.sh`
 * create a systemd unit and a timer files.
@@ -337,69 +380,50 @@ To have all sata disk smart check executed every month, checking 15% of the data
 * enable the timer<br>
   `sudo systemctl enable --now snapraid-sync-and-maintenance.timer.timer`
 
-<details>
-<summary><h4>Logrotate</h4></summary>
-
-To prevent growth of the log file.
-
-* install `logrotate`
-* create a config file<br>
-  `/etc/logrotate.d/snapraid`
-  ```bash
-  /var/log/snapraid.log {
-      size 20M
-      rotate 1
-      missingok
-      notifempty
-      create
-  }
-  ```
-Can do dry run to see what it would do `sudo logrotate -d /etc/logrotate.conf`
-
 </details>
 
 ---
 ---
 
-
 <details>
-<summary><h4>SnapRAID Notifications</h4></summary>
+<summary><h1>Network File Sharing - SMB and NFS</h1></summary>
 
-I use [ntfy](https://github.com/DoTheEvo/selfhosted-apps-docker/tree/master/gotify-ntfy-signal)
-for push notifications.<br>
-Create a new systemd unit file that will send the notification
-to your ntfy server.
+### Samba
 
-`/etc/systemd/system/ntfy@.service`
-```bash
-[Unit]
-Description=ntfy notification service
-Wants=network-online.target
-After=network-online.target
+[Arch Wiki](https://wiki.archlinux.org/title/Samba)
 
-[Service]
-Type=oneshot
-ExecStart=/bin/curl --fail --retry 3 --retry-delay 30 -d "%i | %H" https://ntfy.example.com/snapraid
+* install samba
+* copy the config below in to `/etc/samba/smb.conf`
+* enable smb.service - `sudo systemctl enable --now smb.service`
+* I dont install `nmb.service` for the old netbios discovery,
+  it's dead technology.<br>
+  If windows machines on the network **install wsdd** and enable
+  the service `sudo systemctl enable --now wsdd.service`
+* 
+
+`/etc/samba/smb.conf`
 ```
+[global]
+   security = user
+   map to guest = Bad User
+   dns proxy = no
+   disable netbios = yes
+   smb ports = 445
 
-Edit the snapraid unit file, adding OnFailure and OnSuccess actions.
+[MergerFS]
+   path = /mnt/pool
+   browseable = yes
+   writable = yes
+   guest ok = no
+   valid users = bastard
+   create mask = 0664
+   directory mask = 0775
+   force user = bastard
+   force group = bastard
 
-`snapraid-sync-and-maintenance.service`
-```bash
-[Unit]
-Description=SnapRAID sync, scrub, smart
-OnFailure=ntfy@failure-%p.service
-OnSuccess=ntfy@success-%p.service
-
-[Service]
-Type=oneshot
-ExecStart=/opt/snapraid-sync-and-maintenance.sh
 ```
 
 </details>
-
----
----
 
 
 <details>
