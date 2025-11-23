@@ -33,7 +33,7 @@ But:
 * [Linux and disks preparation](#Linux-and-disks-preparation)
 * [MergerFS](#MergerFS) - merge many disks in to one mount point
 * [SnapRAID](#SnapRAID) - protect against a disk failure
-* [Network File Sharing - Samba and NFS](#Network-File-Sharing--Samba-and-NFS)
+* [Network File Sharing - Samba and NFS](#Network-File-Sharing---Samba-and-NFS)
 * [Spinning down the HDDs](#Spinning-down-the-HDDs)
 * [Hardware](#Hardware)
 
@@ -655,6 +655,9 @@ information. Something like this:<br>
 
 </details>
 
+---
+---
+
 
 <details>
 <summary><h1>Spinning down the HDDs</h1></summary>
@@ -884,7 +887,6 @@ My pick - mATX case from aliexpres - [Sagittarius](https://youtu.be/fjqKEmNot_M)
   * I like the idea of a smaller case, but not too small where
     ITX motherboards are expensive and much more limiting with PCIE slots.
     Same with SFX power supplies as they got much more expensive.
-    This one is 270x270x300mm.
   * 8x 3.5" hot swappable disk bays, sata / sas compatible
   * great cooling with space for 2x 120fans just for disks,
     and another 2x 120 for the mobo section
@@ -912,9 +914,9 @@ The ideal solution is to buy a used enterprise-tier raid card
 in IT mode.<br>
 IT mode means raid functionality is disabled and it's just a pcie card that
 provides you with plenty of sata connection for the drives.
-But it is of high quality as you don't want to be trying to solve - why some
-disks are disconnecting sometimes, or whatever issues...<br>
-These cards cost like 400€ new, but you can get them cheap from ebay.
+But it is of high quality as you don't want to be trying
+to solve - *why some disks are disconnecting sometimes*, or whatever issues...<br>
+These cards cost like 400€ new, but you can get them cheap on ebay.
 
 General cards overview - [youtube video](https://youtu.be/hTbKzQZk21w)
 
@@ -956,12 +958,12 @@ Big decision Intel vs AMD.
 
 * Intel - bit [better igpu performance](https://github.com/DoTheEvo/selfhosted-apps-docker/tree/master/jellyfin#testing-various-hardware)
   for video transcoding, if planing to run something like jellyfin...
-* AMD - possibility to go ECC ram which improves stability and reliability a bit
+* AMD - possibility to go ECC ram with some CPUs, which improves stability
+  and reliability a bit
 
 You can also go budget option with something like N100 based motherboard,
 like [ASRock N100M](https://www.asrock.com/mb/Intel/N100M/),
-but alas for me the one thing I miss is a build in 2.5gbit.
-Cuz even single HDD is faster than 1gbit network card.
+but not having 2.5gbit network card is kinda deal breaker for me.
 
 Currently in my NAS I have old pentium G3240, waiting for me to decide what
 I like to to put in.
@@ -989,26 +991,37 @@ from 26W idle to 22W idle. Fucking stiff cables though.
 
 ### Network cards
 
-Planning ahead here, higher speed NICs require also switches.
+Plan ahead, higher speed NICs require also higher speed switches.
 
-* 2.5gbit - now starts to be really affordable,
-  switches from ubiquiti and mikrotik, plus 2.5gbit NICs are really common
-  in motherboards now. So it's not expensive and usually worth it as
-  even a single HDD is 2x faster than the pathetic 1gbit network.
-* 10gbit - people like the idea and the cost of getting there got pretty affordable,
-  but if in planning stage and your situation allows it...
-  plan to not go for 10GBase-T, meaning not going for copper twister pair rj45
-  cables and buying 10gbit rj45 switches and NICs. They tend to run very hot,
-  with high power consumption. But I understand, if you already have cat6a
-  cable run... it's bothersome to start to make a new run.<br>
-  But if your situation allows, consider going for SFP+ switches and NICs.
-  For distances under 7m you use cheap and very reliable DAC cables.
-  For longer runs its optical with transceivers. SFP+ switches run cool enough
-  to be passively cooled. Popular cheap choices are Mikrotik CRS305-1G-4S+IN
-  and CRS309-1G-8S+. But many of their switches have few SFP+ ports.<br>
-  And so.. for 10gbit network cards popular choice is used ebay - intel x520s
-  or x710 for lower idle power consumption.
+**2.5gbit**
 
+Started to be really affordable. There are switches from ubiquiti and mikrotik
+and 2.5gbit NICs are really common in new motherboards now.
+So it's not that expensive and usually worth it, as even a single HDD
+is 2x faster than the pathetic 1gbit network speed.
+
+**10gbit**
+
+People like the idea and the cost of getting there is doable,
+but if in planning stage and your situation allows it...
+plan **not to** go for 10GBase-T, meaning not going for copper twister pair rj45
+cables and buying 10gbit rj45 switches and NICs. They tend to run very hot,
+with high power consumption. But I understand, if you already have cat6a
+cable run... it's bothersome to start to think about cables.<br>
+But if your situation allows, consider going for SFP+ switches and NICs.
+For distances under 7m you use cheap and very reliable DAC cables.
+For longer runs its optical with transceivers.<br>
+SFP+ switches run cool enough to be passively cooled.
+Popular cheap choices are Mikrotik CRS305-1G-4S+IN and CRS309-1G-8S+.
+But many of their switches have few SFP+ ports.<br>
+For 10gbit network cards popular choice is used ebay - intel x520s or x710,
+or Mellanox ConnectX-3, ConnectX-4, ConnectX-5.<br>
+Older cheaper ones, might not support ASPM, which means they will not let
+CPU reach higher states of power saving. X710 has good reputation on that,
+but then it also has reputation that it is very picky about cables and transceivers...
+
+Some discussion [here,](https://forums.servethehome.com/index.php?threads/sfp-cards-with-aspm-support.36817/page-4)
+some guide [here](https://www.reddit.com/r/homelab/comments/1jddpus/mellanox_nic_firmwareconfiguration_guide/)
 </details>
 
 ---
