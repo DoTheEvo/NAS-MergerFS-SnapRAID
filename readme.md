@@ -20,24 +20,24 @@ A **NAS** that offers:
 But:
   
   * It's **more work** than just spinning up TrueNAS or OMV.<br>
-    Though individual steps are simple, overall it's still a lot of work.
+    Though individual steps are simple, overall it's still a lot.
   * Requires solid **knowledge** of linux and the terminal.
   * SnapRAID **isn't realtime**.<br>
     Can recover dead disk only to the state from the last snapraid sync run,
     usually every 24h, and only if the data on the other drives did not change much.
   * Bad for **frequently changed** data, or millions of small files.<br>
-    But that means ideal for media server - movies, shows, music, photos, audiobooks,...
+    But that means ideal for media servers - movies, shows, music, photos, audiobooks,...
 
 # Chapters:
 
-* [Linux and disks preparation](#Linux-and-disks-preparation)
-* [MergerFS](#MergerFS) - merge many disks in to one mount point
-* [SnapRAID](#SnapRAID) - protect against a disk failure
-* [Network File Sharing - Samba and NFS](#Network-File-Sharing---Samba-and-NFS)
-* [Spinning down the HDDs](#Spinning-down-the-HDDs)
-* [Hardware](#Hardware)
+* [Preparations](#Preparations) - Linux and disk setup
+* [MergerFS](#MergerFS) - Merge many disks into one mount point
+* [SnapRAID](#SnapRAID) - Protection against disk failure
+* [Network File Sharing](#Network-File-Sharing) - Samba and NFS
+* [HDD Spindown](#HDD-Spindown) - Saving power, extending drive life 
+* [Hardware](#Hardware) - Options and recommendations
 
-# Linux and disks preparation
+# Preparations
 
 ![linux-distros](https://i.imgur.com/fUUP3VA.png)
 
@@ -660,7 +660,7 @@ information. Something like this:<br>
 
 
 <details>
-<summary><h1>Spinning down the HDDs</h1></summary>
+<summary><h1>HDD Spindown</h1></summary>
 
 ![spindown-gif](https://i.imgur.com/QrhQWQc.gif)
 
@@ -894,10 +894,11 @@ My pick - mATX case from aliexpres - [Sagittarius](https://youtu.be/fjqKEmNot_M)
 Other popular cases
 
   * Jonsbo N line has nice ITX cases, but they kinda dropped the ball
-    with mATX cases.
+    with mATX.
   * Fractal design is often picked, with node line for smaller cases,
-  and Define R5 R6 for when big case is not an issues and you want lot of positions.
-  * InWin Chopin MAX - when no 3.5" disks are needed and just want a tiny case.
+  and Define R5 R6 when big case is not an issues and you want lot of positions.
+  * [InWin Chopin MAX](https://i.imgur.com/YLXIS21.png) - when 3.5" disks are
+    not needed, just want a tiny case.
 
 ---
 
@@ -906,33 +907,34 @@ Other popular cases
 ### HBA card
 
 If you have more than 4x disks, it might be difficult finding a motherboard
-with enough sata ports. Or if you plan to to run a hypervisor on metal
-and as a VM run TrueNAS, you need an HBA card that you passthrough in to
-the VM so that TrueNAS has full access to disks without any abstraction layers.
+with enough sata ports.
+Or if you plan to to run TrueNAS in a VM you need an HBA card that you
+passthrough in to it, so that TrueNAS has full access to disks
+without any abstraction layers.
 
 The ideal solution is to buy a used enterprise-tier raid card
-in IT mode.<br>
-IT mode means raid functionality is disabled and it's just a pcie card that
-provides you with plenty of sata connection for the drives.
+in the IT mode.<br>
+The IT mode means the raid functionality is disabled and it's just
+a pcie card that provides you with plenty of sata connection for the drives.
 But it is of high quality as you don't want to be trying
-to solve - *why some disks are disconnecting sometimes*, or whatever issues...<br>
+to solve - *why sometimes some disks are disconnecting or speeds are weird*,
+or whatever issues...<br>
 These cards cost like 400€ new, but you can get them cheap on ebay.
 
 General cards overview - [youtube video](https://youtu.be/hTbKzQZk21w)
 
-**The naming scheme**
+**The Naming Scheme**
 
-* LSI - the company that manufactures the cards, owned by Broadcom
-* SAS2008; SAS3008; SAS3408; SAS3808 - specific chip on the card
-* 9211-8i; 9300-8i; 9400-8i; 9500-8i - specific model of the card,
+* LSI - the company that manufactures the chips, owned by Broadcom
+* SAS2008; SAS3008; SAS3408; SAS3808 - specific chip
+* 9211-8i; 9300-8i; 9400-8i; 9500-8i - specific model of a card,
   usually with x8 disks connections
 * various cable types connector - SFF-8087; SFF-8643; SFF-8654;...
 
-For just HDDs 9211-8i used to be the go-to recommendation
-since they were cheap and the performance is more than enough
-for spinning drives.<br>
-But then the price of 9300-8i started to drop and is about 40€,
-So why not get something newer...
+9211-8i used to be the go-to recommendation since they are cheap
+and the performance is more than enough for spinning drives.<br>
+Then the price of 9300-8i started to drop and is about 40€,
+So why not get newer hardware...
 
 But then theres power consumption.<br>
 [A video](https://www.youtube.com/watch?v=tQOI2pUUVDE)
@@ -997,7 +999,7 @@ Plan ahead, higher speed NICs require also higher speed switches.
 
 Started to be really affordable. There are switches from ubiquiti and mikrotik
 and 2.5gbit NICs are really common in new motherboards now.
-So it's not that expensive and usually worth it, as even a single HDD
+So it's not that expensive and usually worth it, as even a single spinnig HDD
 is 2x faster than the pathetic 1gbit network speed.
 
 **10gbit**
@@ -1020,8 +1022,8 @@ Older cheaper ones, might not support ASPM, which means they will not let
 CPU reach higher states of power saving. X710 has good reputation on that,
 but then it also has reputation that it is very picky about cables and transceivers...
 
-Some discussion [here,](https://forums.servethehome.com/index.php?threads/sfp-cards-with-aspm-support.36817/page-4)
-some guide [here](https://www.reddit.com/r/homelab/comments/1jddpus/mellanox_nic_firmwareconfiguration_guide/)
+Some discussion [here,](https://forums.servethehome.com/index.php?threads/sfp-cards-with-aspm-support.36817/)
+some guide [here.](https://www.reddit.com/r/homelab/comments/1jddpus/mellanox_nic_firmwareconfiguration_guide/)
 </details>
 
 ---
