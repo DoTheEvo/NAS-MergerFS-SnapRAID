@@ -21,7 +21,7 @@ But:
   
   * It's **more work** than just spinning up TrueNAS or OMV.<br>
     Though individual steps are simple, overall it's still a lot.
-  * Requires solid **knowledge** of linux and the terminal.
+  * Requires a solid **knowledge** of linux and the terminal.
   * SnapRAID **isn't realtime**.<br>
     Can recover dead disk only to the state from the last snapraid sync run,
     usually every 24h, and only if the data on the other drives did not change much.
@@ -33,7 +33,7 @@ But:
 * [Preparations](#Preparations) - Linux and disk setup
 * [MergerFS](#MergerFS) - Merge many disks into one mount point
 * [SnapRAID](#SnapRAID) - Protection against disk failure
-* [Network File Sharing](#Network-File-Sharing) - Samba and NFS
+* [Network File Sharing](#Network-File-Sharing-Samba-and-NFS) - Samba and NFS
 * [HDD Spindown](#HDD-Spindown) - Saving power, extending drive life 
 * [Hardware](#Hardware) - Options and recommendations
 
@@ -52,16 +52,19 @@ Format and partition disks and mount them using fstab.
   `sudo parted /dev/sdb --script mklabel gpt`<br>
   `sudo parted /dev/sdc --script mklabel gpt`<br>
   `sudo parted /dev/sdd --script mklabel gpt`<br>
+  `sudo parted /dev/sde --script mklabel gpt`<br>
 * **Partition** disks.<br>
   `sudo parted /dev/sdb --script mkpart primary ext4 0% 100%`<br>
   `sudo parted /dev/sdc --script mkpart primary ext4 0% 100%`<br>
   `sudo parted /dev/sdd --script mkpart primary ext4 0% 100%`<br>
+  `sudo parted /dev/sde --script mkpart primary ext4 0% 100%`<br>
 * **Format** the partitions and label them.<br>
   `sudo mkfs.ext4 /dev/sdb1 -L disk_1`<br>
   `sudo mkfs.ext4 /dev/sdc1 -L disk_2`<br>
   `sudo mkfs.ext4 /dev/sdd1 -L disk_3`<br>
+  `sudo mkfs.ext4 /dev/sde1 -L parity`<br>
 * Create **directories** where drives will be mounted.<br>
-  `sudo mkdir -p /mnt/disk_1 /mnt/disk_2 /mnt/disk_3`
+  `sudo mkdir -p /mnt/disk_1 /mnt/disk_2 /mnt/disk_3 /mnt/parity`
 * Edit **fstab** to mount drives on boot.<br>
   To make things easier, here’s **a script that generates the fstab entries**.<br>
   It includes disk sizes and serial numbers,
@@ -70,27 +73,24 @@ Format and partition disks and mount them using fstab.
   <summary><h5>disks-fstab-entries.sh</h5></summary>
 
   ```bash
-  #!/usr/bin/env bash
-  # Generates a nicely formatted fstab for ext4 partitions and a MergerFS pool
-  # Includes size and serial number for reference
-
   echo "# ======================================================"
-  echo "# Individual disks"
+  echo "# MERGERFS and SNAPRAID DISKS"
   echo "# ======================================================"
   echo
 
-  # Loop over all partitions with ext4
-  lsblk -ln -o NAME,UUID,FSTYPE,SIZE,PKNAME | while read name uuid fstype size pkname; do
+  # Loop over all ext4 partitions
+  lsblk -ln -o NAME,UUID,FSTYPE,SIZE,PKNAME,LABEL | while read name uuid fstype size pkname label; do
       if [ "$fstype" = "ext4" ]; then
           serial=$(lsblk -dn -o SERIAL /dev/$pkname 2>/dev/null)
-          echo "# $name ($size, SN: ${serial:-unknown})"
-          echo "UUID=$uuid /mnt/disk_X $fstype defaults,nofail,errors=remount-ro 0 2"
+          label=${label:-no-label}
+          echo "# $name ($size, label: $label, SN: ${serial:-unknown})"
+          echo "UUID=$uuid /mnt/$label $fstype defaults,nofail,errors=remount-ro 0 2"
           echo
       fi
   done
 
   echo "# ======================================================"
-  echo "# MergerFS pool combining the above disks"
+  echo "# MergerFS pool combining the disks"
   echo "# ======================================================"
   echo
   echo "# /mnt/disk_* /mnt/pool fuse.mergerfs defaults,category.create=pfrd,func.getattr=newest,minfreespace=20G,fsname=mergerfs 0 0"
@@ -98,11 +98,12 @@ Format and partition disks and mount them using fstab.
 
   </details>
 
+  * Create `~/disks-fstab-entries.sh` and paste the code
   * Make the script executable: `chmod +x disks-fstab-entries.sh`
-  * Run it: `./disks-fstab-entries.sh`<br>
-    It echoes stuff into the terminal for you to copy/paste into fstab.
-  * Remove the lines you don't want, **edit the mount points** as needed
-  since they all are set to `/mnt/disk_X` 
+  * Run it: `~/disks-fstab-entries.sh`<br>
+    It echoes into the terminal for you to copy/paste into fstab.
+  * Remove the lines you don't need, **edit the mount points** if needed,
+    since they are taken from labels
 
 To mount all disks defined in fstab - `sudo mount -a` or just reboot.<br>
 Check if all is fine with `lsblk` and `lsblk -f` and `duf` or `dysk`.
@@ -119,8 +120,7 @@ Merges disks of various sizes in to one combined pool.
 * When writing to that pool, files are just simply spread across the disks
   and are **plainly accessible**, even if any of the disks would be pulled
   out and placed in another machine.
-* Works at the **file level**, as opposed to the block level, and uses **fuse**
-  in **user space**, as opposed to be living in the kernel space.
+* Works at the **file level**, as opposed to the block level.
 * Think of it as a **virtual mount point**, not a filesystem.
 * There is **NO redundancy, NO protection.** MergerFS is all about just
   merging disk space.<br>
@@ -138,9 +138,8 @@ Merges disks of various sizes in to one combined pool.
   ```
   /mnt/disk_* /mnt/pool fuse.mergerfs defaults,category.create=pfrd,func.getattr=newest,minfreespace=20G,fsname=mergerfs 0 0
   ```
-* 
   <details>
-  <summary>*The fstab definition options explained*</summary>
+  <summary><i>The fstab definition options explained</i></summary>
 
   * `/mnt/disk_*` - is a wildcard that catches all desired disks mounts.<br>
     Could also be explicitly written *"/mnt/disk_1:/mnt/disk_2:/mnt/disk_3"*
@@ -191,7 +190,7 @@ Two types
     path preserving polices, the ones starting with `msp...` that will
     start putting stuff to another drive instead of failing.
   * **Not Path Preserving** - Data go to a disk with the most free space,
-    or with the least used space, or disk is picked randomly,
+    or with the least used space, or the disk is picked randomly,
     or some variation. The directories structure plays no role.
 
 The **default** policy is `pfrd` which picks disk randomly,
@@ -287,6 +286,7 @@ It should be pretty readable to see what's going on.
 
   ```bash
   #!/bin/bash
+  # v0.1
   set -euo pipefail   # strict mode for bash
 
   # -------------------------------------------------------------
@@ -318,7 +318,7 @@ It should be pretty readable to see what's going on.
   # -------------------------------------------------------------
   # Check if disks defined in SnapRAID config are mounted
   # -------------------------------------------------------------
-  SNAPRAID_DATA_DISKS=$(grep '^disk' /etc/snapraid.conf | awk '{print $2}' || true)
+  SNAPRAID_DATA_DISKS=$(grep '^disk' /etc/snapraid.conf | awk '{print $3}' || true)
 
   if [[ -z "$SNAPRAID_DATA_DISKS" ]]; then
       notify "❌ No disks found in SnapRAID config!"
@@ -399,6 +399,12 @@ It should be pretty readable to see what's going on.
 * enable the timer<br>
   `sudo systemctl enable --now snapraid-sync-and-maintenance.timer`
 
+### SnapRAID recovery on disk failure
+
+Simulating disk failure. Procedure to recover.
+
+...
+
 <details>
 <summary><h1>Network File Sharing - Samba and NFS</h1></summary>
 
@@ -420,9 +426,9 @@ It should be pretty readable to see what's going on.
   * `-M` - no home directory
   * `-s /usr/bin/nologin` - no shell access, exact path differs by distro,
     so using $(which nologin) to get it
+* copy the config below in to `/etc/samba/smb.conf`
 * add the user to samba and set password<br>
   `sudo smbpasswd -a bastard`
-* copy the config below in to `/etc/samba/smb.conf`
 * enable smb.service - `sudo systemctl enable --now smb.service`
 * I don't install `nmb.service` for the old netbios discovery,
   it's dead technology.
@@ -894,7 +900,7 @@ My pick - mATX case from aliexpres - [Sagittarius](https://youtu.be/fjqKEmNot_M)
 Other popular cases
 
   * Jonsbo N line has nice ITX cases, but they kinda dropped the ball
-    with mATX.
+    with mATX. But upcoming N6 looks promising.
   * Fractal design is often picked, with node line for smaller cases,
   and Define R5 R6 when big case is not an issues and you want lot of positions.
   * [InWin Chopin MAX](https://i.imgur.com/YLXIS21.png) - when 3.5" disks are
