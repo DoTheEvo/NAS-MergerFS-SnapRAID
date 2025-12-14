@@ -33,7 +33,7 @@ But:
 * [Preparations](#Preparations) - Linux and disk setup
 * [MergerFS](#MergerFS) - Merge many disks into one mount point
 * [SnapRAID](#SnapRAID) - Protection against disk failure
-* [Network File Sharing](#Network-File-Sharing-Samba-and-NFS) - Samba and NFS
+* [Network File Sharing](#Network-File-Sharing---Samba-and-NFS) - Samba and NFS
 * [HDD Spindown](#HDD-Spindown) - Saving power, extending drive life 
 * [Hardware](#Hardware) - Options and recommendations
 
