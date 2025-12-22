@@ -273,7 +273,7 @@ Of note is that snapraid is saving parity information in to a single file - `sna
   ```
 * `sudo snapraid sync` - the first initial sync
 
-### SnapRAID Automation and notifications
+### SnapRAID automation and notifications
 
 A script that runs daily and will execute sync, scrub, smartctl
 and do some checks and sends ntfy push notifications.<br>
@@ -389,7 +389,7 @@ It should be pretty readable to see what's going on.
   Description=SnapRAID sync, scrub, smart-check
 
   [Timer]
-  OnCalendar=*-*-* 01:30:00
+  OnCalendar=*-*-* 00:19:00
   Persistent=true
 
   [Install]
@@ -399,11 +399,39 @@ It should be pretty readable to see what's going on.
 * enable the timer<br>
   `sudo systemctl enable --now snapraid-sync-and-maintenance.timer`
 
-### SnapRAID recovery on disk failure
+<details>
+<summary><h3>SnapRAID recovery procedure</h3></summary>
 
-Simulating disk failure. Procedure to recover.
+Do not run `snapraid sync` or snapraid will just think the files that are gone
+were deleted on purpose!
 
-...
+Let's simulate a disk failure.
+
+* umount one of the disks `sudo umount /mnt/disk_2`
+* manually execute scheduled snapraid-sync-and-maintenance script<br>
+  `sudo systemctl start snapraid-sync-and-maintenance.service`
+* a notification should comes that something is fucky, if you have it setup
+* ssh in and `sudo snapraid status`,<br>
+  maybe check the last run in the journal `systemctl status snapraid-sync-and-maintenance.service`
+* check network share and see missing episodes in shows or other files
+* simulate replacing the drive by wiping it clean
+  * `sudo wipefs -a /dev/sdc`
+  * `sudo parted /dev/sdc --script mklabel gpt`
+  * `sudo parted /dev/sdc --script mkpart primary ext4 0% 100%`
+  * `sudo mkfs.ext4 /dev/sdc1 -L disk_2`
+  * `sudo mount /dev/sdc1 /mnt/disk_2`
+  * do `lsblk -f` and edit the fstab with the proper uuid so it gets mounted on boot
+* run **snapraid recovery** `sudo snapraid fix -d disk_2`
+* afterwards check snapraid status and browse if stuff is really back in place
+* fix the ownership and permissions for files and directories
+  * `sudo chown -R $USER:$USER /mnt/disk_2`
+  * `sudo find /mnt/disk_2 -type d -exec chmod 755 {} \;`
+  * `sudo find /mnt/disk_2 -type f -exec chmod 664 {} \;`
+* done
+
+Test if stuff in shares is as it should be.
+
+</details>
 
 <details>
 <summary><h1>Network File Sharing - Samba and NFS</h1></summary>
@@ -684,25 +712,6 @@ can change power saving and idle time.
 The execution does not survive reboot so systemd service is used to
 apply prefered behaviour on boot.
 
-### Prevent spindown 
-
-`/etc/systemd/system/hdds-spindown-prevent.service`
-```bash
-[Unit]
-Description=Prevent spindown for all HDDs
-After=local-fs.target systemd-udev-settle.service
-
-[Service]
-Type=oneshot
-ExecStart=/bin/sh -c 'for d in /sys/block/sd*; do [ -f "$d/queue/rotational" ] && [ "$(cat $d/queue/rotational)" -eq 1 ] && [ -b "/dev/$(basename $d)" ] && /usr/bin/hdparm -S 0 -B 255 /dev/$(basename $d) 2>/dev/null || true; done'
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable the service<br>
-`sudo systemctl enable --now hdds-spindown-prevent.service`
-
 ### Control spindown 
 
 `/etc/systemd/system/hdds-spindown-enabled.service`
@@ -733,6 +742,27 @@ Lower the number more aggresive power savings.
 The 127 value is a moderate balanced level that will not be more aggresive
 than the desired 2 hours.
 
+### Prevent spindown 
+
+In a case where you want to prevent spindown.
+
+`/etc/systemd/system/hdds-spindown-prevent.service`
+```bash
+[Unit]
+Description=Prevent spindown for all HDDs
+After=local-fs.target systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'for d in /sys/block/sd*; do [ -f "$d/queue/rotational" ] && [ "$(cat $d/queue/rotational)" -eq 1 ] && [ -b "/dev/$(basename $d)" ] && /usr/bin/hdparm -S 0 -B 255 /dev/$(basename $d) 2>/dev/null || true; done'
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable the service<br>
+`sudo systemctl enable --now hdds-spindown-prevent.service`
+
 ---
 
 Be aware, freshly formated ext4 disks finish their initialization
@@ -748,12 +778,14 @@ no activity. Though also disks firmware might be doing stuff on its own occasion
 
 ### Monitoring spindowns and spinups
 
-To have degree of certanty that disks are not spinning down and up
+To have a degree of certanty that disks are not spinning down and up
 400 times a day, hastening their demise.
 
-* Create the log script in `/opt/disks-spin-logger.sh`<br>
+* Create the log script in `/opt/disks-spin-logger.sh`
+
   <details>
   <summary><h5>disks-spin-logger.sh</h5></summary>
+
   ```bash
   #!/bin/bash
   LOGFILE="/var/log/disks-spin.log"
@@ -821,10 +853,11 @@ To have degree of certanty that disks are not spinning down and up
       fi
   done
   ```
-* Make the script executable: `sudo chmod +x /opt/disks-spin-logger.sh`
-* create a systemd unit file and a timer file in `/etc/systemd/system/`.
 
-  `disks-spin-logger.service`
+* Make the script executable: `sudo chmod +x /opt/disks-spin-logger.sh`
+* create a systemd unit files
+
+  `/etc/systemd/system/disks-spin-logger.service`
   ```bash
   [Unit]
   Description=Log disks spin state
@@ -834,7 +867,7 @@ To have degree of certanty that disks are not spinning down and up
   ExecStart=/opt/disks-spin-logger.sh
   ```
 
-  `disks-spin-logger.timer`
+  `/etc/systemd/system/disks-spin-logger.timer`
   ```bash
   [Unit]
   Description=Run disks spin logger periodically
