@@ -2,17 +2,11 @@
 
 ###### guide-by-example
 
-WORK IN PROGRESS 
+![overview](https://i.imgur.com/eqdDb9K.png)
 
-WORK IN PROGRESS 
+A **NAS** that:
 
-WORK IN PROGRESS
-
-![duf-pic](https://i.imgur.com/HRD6Al1.png)
-
-A **NAS** that offers:
-
-  * **Mixing** HDDs of various sizes.
+  * Allows **mixing** HDDs of various sizes.
   * Trivial to **add** more storage at any time.
   * A **parity drive** protects all data drives.
   * Free and **open source**.
@@ -30,14 +24,14 @@ But:
 
 # Chapters:
 
-* [Preparations](#Preparations) - Linux and disk setup
+* [Preparation](#Preparation) - Linux and disk setup
 * [MergerFS](#MergerFS) - Merge many disks into one mount point
-* [SnapRAID](#SnapRAID) - Protection against disk failure
+* [SnapRAID](#SnapRAID) - Protection against disk failure with notifications
 * [Network File Sharing](#Network-File-Sharing---Samba-and-NFS) - Samba and NFS
 * [HDD Spindown](#HDD-Spindown) - Saving power, extending drive life 
 * [Hardware](#Hardware) - Options and recommendations
 
-# Preparations
+# Preparation
 
 ![linux-distros](https://i.imgur.com/fUUP3VA.png)
 
@@ -66,6 +60,7 @@ Format and partition disks and mount them using fstab.
 * Create **directories** where drives will be mounted.<br>
   `sudo mkdir -p /mnt/disk_1 /mnt/disk_2 /mnt/disk_3 /mnt/parity`
 * Edit **fstab** to mount drives on boot.<br>
+  ![fstab-pic](https://i.imgur.com/mj8aPUB.png)
   To make things easier, here’s **a script that generates the fstab entries**.<br>
   It includes disk sizes and serial numbers,
   as well as a commented out mergerfs section that can be used later.
@@ -73,20 +68,23 @@ Format and partition disks and mount them using fstab.
   <summary><h5>disks-fstab-entries.sh</h5></summary>
 
   ```bash
+  #!/bin/bash
   echo "# ======================================================"
   echo "# MERGERFS and SNAPRAID DISKS"
   echo "# ======================================================"
   echo
 
-  # Loop over all ext4 partitions
+  # Loop over all partitions
   lsblk -ln -o NAME,UUID,FSTYPE,SIZE,PKNAME,LABEL | while read name uuid fstype size pkname label; do
-      if [ "$fstype" = "ext4" ]; then
-          serial=$(lsblk -dn -o SERIAL /dev/$pkname 2>/dev/null)
-          label=${label:-no-label}
-          echo "# $name ($size, label: $label, SN: ${serial:-unknown})"
-          echo "UUID=$uuid /mnt/$label $fstype defaults,nofail,errors=remount-ro 0 2"
-          echo
-      fi
+
+      [[ -n "$pkname" ]] || continue
+      [[ -z "$uuid" || "$fstype" =~ ^(swap|zram|iso9660)$ ]] && continue
+
+      serial=$(lsblk -dn -o SERIAL /dev/$pkname 2>/dev/null)
+      label=${label:-no-label}
+      echo "# $name ($size, label: $label, SN: ${serial:-unknown})"
+      echo "UUID=$uuid /mnt/$label $fstype defaults,nofail,errors=remount-ro 0 2"
+      echo
   done
 
   echo "# ======================================================"
@@ -102,7 +100,7 @@ Format and partition disks and mount them using fstab.
   * Make the script executable: `chmod +x disks-fstab-entries.sh`
   * Run it: `~/disks-fstab-entries.sh`<br>
     It echoes into the terminal for you to copy/paste into fstab.
-  * Remove the lines you don't need, **edit the mount points** if needed,
+  * Remove the lines you don't need, **edit the mount points** as needed,
     since they are taken from labels
 
 To mount all disks defined in fstab - `sudo mount -a` or just reboot.<br>
@@ -110,23 +108,25 @@ Check if all is fine with `lsblk` and `lsblk -f` and `duf` or `dysk`.
 
 # MergerFS
 
-![fstab-pic](https://i.imgur.com/ouafW81.png)
+![duf-pic](https://i.imgur.com/HRD6Al1.png)
 
 * [Github](https://github.com/trapexit/mergerfs)
 * [The documentation.](https://trapexit.github.io/mergerfs/)
 
-Merges disks of various sizes in to one combined pool.
+Merges disks of various sizes in to **one combined pool**.
 
-* When writing to that pool, files are just simply spread across the disks
-  and are **plainly accessible**, even if any of the disks would be pulled
-  out and placed in another machine.
-* Works at the **file level**, as opposed to the block level.
-* Think of it as a **virtual mount point**, not a filesystem.
+* When writing to that pool, files are spread across the disks
+* Works at the **file level**, as opposed to block level.<br>
+  Means files are **plainly accessible**, even if any of the disks
+  would be pulled out and placed in another machine,
+  the filesystem and the files are just there.
+* Think of it as a **virtual mount point**, not a typical filesystem.
 * There is **NO redundancy, NO protection.** MergerFS is all about just
   merging disk space.<br>
   That's why we use SnapRAID later.
 * Very **simple setup** and configuration with a single line in `/etc/fstab`
 * **Easy to add drives**, even ones already containing data. No rebuild time.
+* **Good performance**, near native, with just fuse overhead, low cpu/ram usage.
 * Written in C and C++.
 
 ### MergerFS setup
@@ -218,7 +218,7 @@ But it kinda depends on the type of data you have.
 
   * Shows, music, audiobooks,... benefit from this approach as just
     having some of the files of a season, or audiobook or an album is the same
-    as not having them at all.
+    as not having it at all.
   * Photos, documents,.. here this approach might be worse, as a disk failure
     loses you entire year of photos or an entire vacation because photos were
     in a directory titled *"2019"* and *"Vacation Iceland"*. Which might
@@ -227,7 +227,38 @@ But it kinda depends on the type of data you have.
 
 </details>
 
+<details>
+<summary><h3>Adding a new drive </h3></summary>
+
+Run through the [Preparation](#Preparation) chapter again,
+but only for the new disk.<br>
+
+* Partition it, label it, create folder for its mount point `/mnt/disk_X`
+* Edit the fstab.
+  * Add disk_X along the other disks so it mounts on boot.
+  * Mergerfs uses a wild card `/mnt/disk_*`,
+    so the new disk will be included in the pool automatically.
+* Run `sudo mount -a` or reboot.
+
+For snapraid, if the size of the new drive is smaller or equal
+to the current parity drive... just add it to the snapraid config
+as an another data drive.
+
+* edit `/etc/snapraid.conf`
+* add `disk_X` in the data disks section 
+* execute `sudo snapraid sync` or let it run automatically at the next schedule
+
+If the drive is larger...<br>
+either accept you are not protecting it, or it's your new parity drive.
+which just means same stuff as before with partitioning, mounting, labeling,
+fstab,.. and then parity settings in `/etc/snapraid.conf`.<br>
+And after that it's full parity rebuild with `sudo snapraid sync`.
+
+</details>
+
 # SnapRAID
+
+![snapraid](https://i.imgur.com/KW8uGjY.png)
 
 * [Github](https://github.com/amadvance/snapraid)
 * [Changelog](https://github.com/amadvance/snapraid/blob/master/HISTORY)
@@ -235,14 +266,22 @@ But it kinda depends on the type of data you have.
 * [Arch Wiki](https://wiki.archlinux.org/title/SnapRAID)
 
 Provides parity protection against disk failure and bitrot.<br> 
-Works at file level, not disk or block level. Unlike regular raid that is
-constant ever present, snapraid needs to have scheduled syncs. Usually once every 24 hours.<br>
-In case of a disk failure, you are able to recover data from the last sync run,
-but only if the data on the other drives didn't change much, as the parity is
-calculated against the content of all data drives.<br>
+The parity disk must be larger or equal in size to the largest of the data
+drives it protects, but that one parity drive can protect whatever number of
+data drives. Adding more parity drives guards against multiple disks
+failing at once.<br>
+Unlike regular raid that is ever present, snapraid needs a scheduled periodic
+syncs. Usually once every 24 hours and we can return only to the state when
+the last sync was run.
+Also if the data on the the other drives were modified/deleted after the sync,
+then that change can prevent full recovery as against those data parity
+is calculated.
 This behavior makes it good only for data that do not change often,
 like movies, shows, music, photos, audiobooks, videos,...<br>
-Of note is that snapraid is saving parity information in to a single file - `snapraid.parity`
+Of note is also that snapraid is saving parity
+information in to a single file - `snapraid.parity`<br>
+Written in C.
+
 
 ### SnapRAID setup
 
@@ -259,9 +298,7 @@ Of note is that snapraid is saving parity information in to a single file - `sna
 
   # Content file with metadata for recovery
   content /var/lib/snapraid.content
-  content /mnt/disk_1/snapraid.content
-  content /mnt/disk_2/snapraid.content
-  content /mnt/disk_3/snapraid.content
+  content /mnt/parity/snapraid.content
 
   # Excludes
   exclude /lost+found/
@@ -275,9 +312,14 @@ Of note is that snapraid is saving parity information in to a single file - `sna
 
 ### SnapRAID automation and notifications
 
-A script that runs daily and will execute sync, scrub, smartctl
-and do some checks and sends ntfy push notifications.<br>
-It should be pretty readable to see what's going on.
+![ntfy](https://i.imgur.com/KZZmv7d.png)
+
+
+A script runs daily and executes sync, scrub, smartctl
+and does some checks and sends
+[ntfy](https://github.com/DoTheEvo/selfhosted-apps-docker/tree/master/gotify-ntfy-signal)
+push notifications.<br>
+The script itself should be pretty readable, to see what's going on.
 
 * create a file `/opt/snapraid-sync-and-maintenance.sh`<br>
 
@@ -402,25 +444,31 @@ It should be pretty readable to see what's going on.
 <details>
 <summary><h3>SnapRAID recovery procedure</h3></summary>
 
-Do not run `snapraid sync` or snapraid will just think the files that are gone
-were deleted on purpose!
+![snapraid-diff](https://i.imgur.com/OaFLVdp.png)
 
-Let's simulate a disk failure.
+If one of the disks fails, **do not run** plain command `snapraid sync`
+or snapraid might think the files that are gone were deleted on purpose!
+It [should complain](https://i.imgur.com/RoIsw9H.png)
+and require `-E, --force-empty ` flag for sync to happen when an entire
+data disk that previously had files is now empty, but still...
+
+**Simulating a disk failure.**
 
 * umount one of the disks `sudo umount /mnt/disk_2`
 * manually execute scheduled snapraid-sync-and-maintenance script<br>
   `sudo systemctl start snapraid-sync-and-maintenance.service`
-* a notification should comes that something is fucky, if you have it setup
-* ssh in and `sudo snapraid status`,<br>
+* a notification should come that something is fucky,
+  assuming you have notifications setup
+* ssh in and `lsblk` and `sudo snapraid diff`,<br>
   maybe check the last run in the journal `systemctl status snapraid-sync-and-maintenance.service`
 * check network share and see missing episodes in shows or other files
-* simulate replacing the drive by wiping it clean
+* simulate replacing the dead drive by wiping it clean
   * `sudo wipefs -a /dev/sdc`
   * `sudo parted /dev/sdc --script mklabel gpt`
   * `sudo parted /dev/sdc --script mkpart primary ext4 0% 100%`
   * `sudo mkfs.ext4 /dev/sdc1 -L disk_2`
   * `sudo mount /dev/sdc1 /mnt/disk_2`
-  * do `lsblk -f` and edit the fstab with the proper uuid so it gets mounted on boot
+  * do `lsblk -f` and edit the fstab with the new uuid so it gets mounted on boot
 * run **snapraid recovery** `sudo snapraid fix -d disk_2`
 * afterwards check snapraid status and browse if stuff is really back in place
 * fix the ownership and permissions for files and directories
@@ -436,6 +484,8 @@ Test if stuff in shares is as it should be.
 <details>
 <summary><h1>Network File Sharing - Samba and NFS</h1></summary>
 
+![samba-nfs](https://i.imgur.com/DzpdluV.jpeg)
+
 * **Samba** - Well supported by all systems - windows, linux, android, macos,...<br>
   also called by the protocol name - SMB or CIFS
 * **NFS** - Simple, ideal for sharing files between linux machine.
@@ -445,6 +495,8 @@ Test if stuff in shares is as it should be.
 
 <details>
 <summary><h2>Samba Setup</h2></summary>
+
+![samba](https://i.imgur.com/8WkDmsA.png)
 
 [Arch Wiki](https://wiki.archlinux.org/title/Samba)
 
@@ -571,6 +623,8 @@ Should be trivial to access the share over the network, or to map it to a letter
 
 <details>
 <summary><h2>NFS Setup</h2></summary>
+
+![nfs](https://i.imgur.com/904rDGH.png)
 
 [Arch Wiki](https://wiki.archlinux.org/title/NFS)
 
