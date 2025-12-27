@@ -1,4 +1,4 @@
-# A NAS with MergerFS and SnapRAID
+# NAS-2026 | MergerFS and SnapRAID
 
 ###### guide-by-example
 
@@ -8,19 +8,27 @@ A **NAS** that:
 
   * Allows **mixing** HDDs of various sizes.
   * Trivial to **add** more storage at any time.
-  * A **parity drive** protects all data drives.
+  * A **parity drive** that protects all data drives.
   * Free and **open source**.
 
 But:
   
-  * It's **more work** than just spinning up TrueNAS or OMV.<br>
-    Though individual steps are simple, overall it's still a lot.
+  * It's **more work** than just installing
+    [TrueNAS](https://www.truenas.com/)
+    or [OMV](https://www.openmediavault.org/).
   * Requires a solid **knowledge** of linux and the terminal.
   * SnapRAID **isn't realtime**.<br>
-    Can recover dead disk only to the state from the last snapraid sync run,
-    usually every 24h, and only if the data on the other drives did not change much.
+    Can only recover data to the state of the last `snapraid sync`,
+    which usually runs every 24h.
   * Bad for **frequently changed** data, or millions of small files.<br>
     But that means ideal for media servers - movies, shows, music, photos, audiobooks,...
+
+*A notice*<br>
+Not yet running this setup for actual data.
+This guide is a way to prepare and document for the deployment.
+Also AI - chatgpt and claude was used for scripts and sanity checks.
+But no blind trust, stuff was investigated, checked against documentation
+and tested many times.
 
 # Chapters:
 
@@ -35,7 +43,7 @@ But:
 
 ![linux-distros](https://i.imgur.com/fUUP3VA.png)
 
-Have a Linux installed on a machine.<br>
+Have a Linux installed.<br>
 I use Arch, installing it using [archinstall](https://wiki.archlinux.org/title/Archinstall),
 and have [ansible playbooks](https://github.com/DoTheEvo/ansible-arch)
 to set it up how I like it.
@@ -105,6 +113,8 @@ Format and partition disks and mount them using fstab.
 
 To mount all disks defined in fstab - `sudo mount -a` or just reboot.<br>
 Check if all is fine with `lsblk` and `lsblk -f` and `duf` or `dysk`.
+
+
 
 # MergerFS
 
@@ -314,12 +324,10 @@ Written in C.
 
 ![ntfy](https://i.imgur.com/KZZmv7d.png)
 
-
-A script runs daily and executes sync, scrub, smartctl
-and does some checks and sends
+A script that runs daily that checks if disks are mounted, executes sync,
+scrub, and periodic smartctl disks healh checks and health tests and sends
 [ntfy](https://github.com/DoTheEvo/selfhosted-apps-docker/tree/master/gotify-ntfy-signal)
-push notifications.<br>
-The script itself should be pretty readable, to see what's going on.
+push notifications.
 
 * create a file `/opt/snapraid-sync-and-maintenance.sh`<br>
 
@@ -328,7 +336,7 @@ The script itself should be pretty readable, to see what's going on.
 
   ```bash
   #!/bin/bash
-  # v0.1
+  # v0.2
   set -euo pipefail   # strict mode for bash
 
   # -------------------------------------------------------------
@@ -338,6 +346,16 @@ The script itself should be pretty readable, to see what's going on.
   MERGERFS_MOUNT="/mnt/pool"
 
   # -------------------------------------------------------------
+  # Check dependencies
+  # -------------------------------------------------------------
+  for cmd in snapraid smartctl curl; do
+      command -v "$cmd" >/dev/null 2>&1 || {
+          echo "❌ Required command not found: $cmd"
+          exit 1
+      }
+  done
+  
+  # -------------------------------------------------------------
   # A function that Sends ntfy notification and logs to journal
   # -------------------------------------------------------------
   notify() {
@@ -346,9 +364,18 @@ The script itself should be pretty readable, to see what's going on.
       echo -e "$msg" # To also log to systemd journal
   }
 
+  # Preventing concurent runs with a lockfile
+  LOCKFILE="/run/snapraid_maintenance.lock"
+  exec 9>"$LOCKFILE" || exit 1
+  flock -n 9 || {
+      notify "❌ Another instance of SnapRAID maintenance script is already running."
+      exit 0
+  }
+
   # -------------------------------------------------------------
   echo "=== SnapRAID maintenance script started $(date +"%F %T") ==="
-  
+  SCRIPT_FAILED=false # variable to check if send success notification or not
+ 
   # -------------------------------------------------------------
   # Check if mergerfs mount point exists
   # -------------------------------------------------------------
@@ -386,8 +413,9 @@ The script itself should be pretty readable, to see what's going on.
   # Do partial scrub, 15% of data once a month on the 1st
   # -------------------------------------------------------------
   if [[ $(date +%d) -eq 01 ]]; then
-      if ! scrub_output=$(snapraid scrub -p 15 2>&1); then
+      if ! scrub_output=$(snapraid scrub -p 15 -o 180 2>&1); then
           notify "❌ SnapRAID scrub failed:\n$scrub_output"
+          SCRIPT_FAILED=true
       fi
   fi
 
@@ -397,17 +425,79 @@ The script itself should be pretty readable, to see what's going on.
   if [[ $(date +%u) -eq 7 ]]; then
       SMART_DISKS=$(smartctl --scan | awk '{print $1}')
       for disk in $SMART_DISKS; do
-          echo "$(date +"%F %T") SMART check for $disk"
+          echo "$(date +"%F %T") Starting SMART check $disk"
           if ! smartctl -H "$disk" > /dev/null 2>&1; then
-              notify "❌ SMART health check failed for $disk"
+              MODEL=$(smartctl -i "$disk" | grep "Device Model" | cut -d: -f2 | xargs)
+              notify "❌ SMART health check failed $disk ($MODEL)"
+              SCRIPT_FAILED=true
           fi
       done
   fi
 
   # -------------------------------------------------------------
+  # SMART short test once a month on 10th
+  # -------------------------------------------------------------
+  if [[ $(date +%d) -eq 10 ]]; then
+      SMART_DISKS=$(smartctl --scan | awk '{print $1}')
+      for disk in $SMART_DISKS; do
+          echo "$(date +"%F %T") Starting SMART short test $disk"
+          smartctl -t short "$disk" > /dev/null 2>&1 || true
+      done
+      notify "🔍 Monthly SMART short tests started"
+      
+      sleep 600 # waiting 10 minutes for tests to finish
+
+      ALL_PASSED=true
+      for disk in $SMART_DISKS; do
+          if ! smartctl -l selftest "$disk" | head -n 8 | grep -q "Completed without error"; then
+              MODEL=$(smartctl -i "$disk" | grep "Device Model" | cut -d: -f2 | xargs)
+              notify "❌ SMART short test failed: $disk ($MODEL)"
+              ALL_PASSED=false
+              SCRIPT_FAILED=true
+          fi
+      done
+
+      if $ALL_PASSED; then
+          notify "✅ All SMART short tests passed"
+      fi
+  fi
+
+  # -------------------------------------------------------------
+  # SMART long test once every 4 months - april | august | december | 19th
+  # -------------------------------------------------------------
+  if [[ $(date +%d) -eq 19 ]] && (( 10#$(date +%m) % 4 == 0 )); then
+      SMART_DISKS=$(smartctl --scan | awk '{print $1}')
+      for disk in $SMART_DISKS; do
+          echo "$(date +"%F %T") Starting SMART long test $disk"
+          smartctl -t long "$disk" > /dev/null 2>&1 || true
+      done
+      notify "🔍 Triannual SMART long tests started, results in 2 days"
+  fi
+
+  # Results check 2 days later
+  if [[ $(date +%d) -eq 21 ]] && (( 10#$(date +%m) % 4 == 0 )); then
+      SMART_DISKS=$(smartctl --scan | awk '{print $1}')
+      ALL_PASSED=true
+      for disk in $SMART_DISKS; do
+          if ! smartctl -l selftest "$disk" | head -n 8 | grep -q "Completed without error"; then
+              MODEL=$(smartctl -i "$disk" | grep "Device Model" | cut -d: -f2 | xargs)
+              notify "❌ SMART long test failed: $disk ($MODEL)"
+              ALL_PASSED=false
+              SCRIPT_FAILED=true
+          fi
+      done
+
+      if $ALL_PASSED; then
+          notify "✅ All SMART long tests passed"
+      fi
+  fi
+
+  # -------------------------------------------------------------
   # Send success ntfy notification
   # -------------------------------------------------------------
-  notify "✅ SnapRAID sync and maintenance completed successfully $(date +"%F %T")"
+  if ! $SCRIPT_FAILED; then
+      notify "✅ SnapRAID sync and maintenance completed successfully $(date +"%F %T")"
+  fi
   ```
 
   </details>
@@ -976,7 +1066,7 @@ Can do dry run to see what it would do `sudo logrotate -d /etc/logrotate.conf`
 How big or small, how expensive, how many 3.5"/2.5"/m.2 disks positions?<br>
 My pick - mATX case from aliexpres - [Sagittarius](https://youtu.be/fjqKEmNot_M)
   
-  * was 150€ with shippin
+  * was 150€ with shipping
   * I like the idea of a smaller case, but not too small where
     ITX motherboards are expensive and much more limiting with PCIE slots.
     Same with SFX power supplies as they got much more expensive.
@@ -1130,3 +1220,5 @@ some guide [here.](https://www.reddit.com/r/homelab/comments/1jddpus/mellanox_ni
 * https://zackreed.me/snapraid-split-parity-sync-script/
 * https://www.youtube.com/watch?v=Yt67zz9p0FU
 * https://www.reddit.com/r/OpenMediaVault/comments/11gwi1g/significant_samba_speedperformance_improvement_by/
+* https://blog.briancmoses.com/2025/11/diy-nas-2026-edition.html
+* https://github.com/Chronial/snapraid-runner
