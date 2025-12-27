@@ -2,7 +2,7 @@
 
 ###### guide-by-example
 
-![overview](https://i.imgur.com/eqdDb9K.png)
+![overview](https://i.imgur.com/xANsRO7.png)
 
 A **NAS** that:
 
@@ -30,7 +30,7 @@ Also AI - chatgpt and claude was used for scripts and sanity checks.
 But no blind trust, stuff was investigated, checked against documentation
 and tested many times.
 
-# Chapters:
+### Chapters:
 
 * [Preparation](#Preparation) - Linux and disk setup
 * [MergerFS](#MergerFS) - Merge many disks into one mount point
@@ -67,10 +67,10 @@ Format and partition disks and mount them using fstab.
   `sudo mkfs.ext4 /dev/sde1 -L parity`<br>
 * Create **directories** where drives will be mounted.<br>
   `sudo mkdir -p /mnt/disk_1 /mnt/disk_2 /mnt/disk_3 /mnt/parity`
-* Edit **fstab** to mount drives on boot.<br>
+* Edit **fstab** to mount drives at boot.<br>
   ![fstab-pic](https://i.imgur.com/mj8aPUB.png)
   To make things easier, here’s **a script that generates the fstab entries**.<br>
-  It includes disk sizes and serial numbers,
+  It expects ext4, it includes disk sizes and serial numbers,
   as well as a commented out mergerfs section that can be used later.
   <details>
   <summary><h5>disks-fstab-entries.sh</h5></summary>
@@ -107,7 +107,7 @@ Format and partition disks and mount them using fstab.
   * Create `~/disks-fstab-entries.sh` and paste the code
   * Make the script executable: `chmod +x disks-fstab-entries.sh`
   * Run it: `~/disks-fstab-entries.sh`<br>
-    It echoes into the terminal for you to copy/paste into fstab.
+    It echoes stuff into the terminal for you to copy/paste into fstab.
   * Remove the lines you don't need, **edit the mount points** as needed,
     since they are taken from labels
 
@@ -125,7 +125,7 @@ Check if all is fine with `lsblk` and `lsblk -f` and `duf` or `dysk`.
 
 Merges disks of various sizes in to **one combined pool**.
 
-* When writing to that pool, files are spread across the disks
+* When writing to that pool, files are **spread** across the disks
 * Works at the **file level**, as opposed to block level.<br>
   Means files are **plainly accessible**, even if any of the disks
   would be pulled out and placed in another machine,
@@ -165,7 +165,7 @@ Merges disks of various sizes in to **one combined pool**.
     to store new files, saves the space for metadata and whatnot.
   * `fsname=mergerfs` - just defines what name to show in info/disk utilities
   * `0 0` - the first zero is some legacy backup dump, and second is about fsck
-    on boot. Since mergerfs is union filesystem no fsck for it.
+    at boot. Since mergerfs is union filesystem no fsck for it.
 
   Looking around the internet there are other mount options being used,
   but digging deeper shown that some were
@@ -178,8 +178,7 @@ Merges disks of various sizes in to **one combined pool**.
 
 * Mount it, or reboot.<br>
   `sudo mount /mnt/pool`
-* **Take ownership** of the new mount `sudo chown -R $USER:$USER /mnt/pool`<br>
-  The underlying disks should stay owned by root.
+* **Take ownership** of the new mount `sudo chown -R $USER:$USER /mnt/pool`
 * **Done**.
 
 <details>
@@ -275,14 +274,14 @@ And after that it's full parity rebuild with `sudo snapraid sync`.
 * [The documentation.](https://www.snapraid.it/manual)
 * [Arch Wiki](https://wiki.archlinux.org/title/SnapRAID)
 
-Provides parity protection against disk failure and bitrot.<br> 
+Provides parity **protection against disk failure** and bitrot.<br> 
 The parity disk must be larger or equal in size to the largest of the data
 drives it protects, but that one parity drive can protect whatever number of
 data drives. Adding more parity drives guards against multiple disks
 failing at once.<br>
-Unlike regular raid that is ever present, snapraid needs a scheduled periodic
-syncs. Usually once every 24 hours and we can return only to the state when
-the last sync was run.
+Unlike regular raid that is ever going,
+snapraid **needs a scheduled periodic sync**, usually once every 24 hours.
+We can return only to the state when the last sync was run.
 Also if the data on the the other drives were modified/deleted after the sync,
 then that change can prevent full recovery as against those data parity
 is calculated.
@@ -292,6 +291,10 @@ Of note is also that snapraid is saving parity
 information in to a single file - `snapraid.parity`<br>
 Written in C.
 
+*A note*<br>
+Backups are better than parity protection typical for raid setup,
+or this snapraid stuff. Be sure you understand the difference,
+pros and cons, understand why people say *"raid is not a backup"*
 
 ### SnapRAID setup
 
@@ -508,7 +511,7 @@ push notifications.
   `/etc/systemd/system/snapraid-sync-and-maintenance.service`
   ```bash
   [Unit]
-  Description=SnapRAID sync, scrub, smart-check
+  Description=SnapRAID sync, scrub, smartctl check, smartctl tests
 
   [Service]
   Type=oneshot
@@ -518,7 +521,7 @@ push notifications.
   `/etc/systemd/system/snapraid-sync-and-maintenance.timer`
   ```bash
   [Unit]
-  Description=SnapRAID sync, scrub, smart-check
+  Description=SnapRAID sync, scrub, smartctl check, smartctl tests
 
   [Timer]
   OnCalendar=*-*-* 00:19:00
@@ -590,18 +593,20 @@ Test if stuff in shares is as it should be.
 
 [Arch Wiki](https://wiki.archlinux.org/title/Samba)
 
-* install samba
-* create a local linux user that will be used to access the share<br>
-  `sudo useradd -M -s "$(which nologin)" bastard`
-  * `-M` - no home directory
-  * `-s /usr/bin/nologin` - no shell access, exact path differs by distro,
-    so using $(which nologin) to get it
-* copy the config below in to `/etc/samba/smb.conf`
-* add the user to samba and set password<br>
-  `sudo smbpasswd -a bastard`
+* Install samba.
+* Copy the config below in to `/etc/samba/smb.conf`<br>
+  notice the user named `bastard` being used in it, replace with yours.<br>
+  The config needs to exist or other commands wont work.
+* Add your local linux user to samba and set password.<br>
+  `sudo smbpasswd -a bastard`<br>
+  Messier alternative, create a new user just for samba
+  * `sudo useradd -M -s "$(which nologin)" smbuser`
+  * that user either needs ownership of the shared folder
+    `sudo chown -R smbuser:smbuser /mnt/pool`, or needs to be added to the group
+    of whoever owns it `sudo usermod -aG myspeciallocaluser smbuser`
+    and make sure permission allows group to write `sudo chmod 0775 /mnt/pool`
 * enable smb.service - `sudo systemctl enable --now smb.service`
-* I don't install `nmb.service` for the old netbios discovery,
-  it's dead technology.
+* I don't install `nmb.service` for the old netbios discovery, it's a dead technology.
 * If windows machines should have the PC appear in network on it's own, 
   install **wsdd** and enable  the service `sudo systemctl enable --now wsdd.service`
 
@@ -736,7 +741,7 @@ allowing in specific IPs, or entire networks.
 * edit `/etc/exports` adding line that sets up a share<br>
   `/mnt/pool 10.0.19.0/24(rw,no_root_squash,fsid=1)`<br>
   <details>
-  <summary>*nfs export options explained*</summary>
+  <summary><i>nfs export options explained</i></summary>
   
   * `rw` - read and **write** allowed
   * `no_root_squash` - if mounted at linux that requires to write
