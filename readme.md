@@ -658,68 +658,9 @@ Test if stuff in shares is as it should be.
 
 ```
 
-### Linux Client
-
-* install samba/cif support if required<br>
-  on arch it's `cifs-utils`
-* visit the IP of the NAS in your file explorer `smb://10.0.19.80` or `\\10.0.19.80`
-
 #### Permanent Samba mount at boot
 
-Systemd mount will be used, but there are two ways to do it.
-
-* **mount** service is enabled<br>
-  straight up mounting at boot, high expectation that the network share
-  is always available during the boot, this is the best for servers, docker hosts,...
-* **automount** service is enabled<br>
-  mounting happens at the first demand to access the network share,
-  does not wait during boot for the mount to really happen,
-  can auto-umount on idle, good for users machines
-
-The name of these service files must be a path of the mount location,
-using dashes `-` instead of slashes `/`
-
-* Have `/mnt/pool` directory ready on the client - `sudo mkdir /mnt/pool`
-
-`/etc/systemd/system/mnt-pool.mount`
-```
-[Unit]
-Description=Mount MergerFS Pool
-After=network-online.target
-Wants=network-online.target
-
-[Mount]
-What=//10.0.19.80/pool
-Where=/mnt/pool
-Type=cifs
-Options=rw,username=bastard,password=aaa,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,vers=3.0
-
-[Install]
-WantedBy=multi-user.target
-```
-
-`/etc/systemd/system/mnt-pool.automount`
-```
-[Unit]
-Description=Automount MergerFS Pool
-Requires=network-online.target
-After=network-online.target
-
-[Automount]
-Where=/mnt/pool
-TimeoutIdleSec=0
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable the mount service: `sudo systemctl enable --now mnt-pool.mount`<br>
-or<br>
-Enable the automount service: `sudo systemctl enable --now mnt-pool.automount`
-
-### Windows Client
-
-Should be trivial to access the share over the network, or to map it to a letter.
+* [Instructions here.](https://github.com/DoTheEvo/selfhosted-apps-docker/blob/master/_knowledge-base/mounting_network_share_linux.md)
 
 ---
 ---
@@ -777,69 +718,9 @@ allowing in specific IPs, or entire networks.
   * if more separate users on the client side, then create those users
     as local on the server with correct uid/gid and permissions in to the share
 
-### Linux Client
-
-* install nfs<br>
-  on arch it's `nfs-utils`
-* check if the client sees the export available at the server's ip<br>
-  `showmount -e 10.0.19.80`
-* one time mount: `sudo mount -t nfs -o vers=3 10.0.19.80:/mnt/pool /mnt/pool`
-
 #### Permanent NFS mount at boot
 
-Using [systemd mount and automount](https://wiki.archlinux.org/title/Systemd#systemd.mount_-_mounting).<br>
-The name of these service files must be a path of the mount location,
-using dashes `-` instead of slashes `/`
-
-* Have `/mnt/pool` directory ready on the client - `sudo mkdir /mnt/pool`
-
-`/etc/systemd/system/mnt-pool.mount`
-```
-[Unit]
-Description=Mount MergerFS Pool
-After=network-online.target
-Wants=network-online.target
-
-[Mount]
-What=10.0.19.80:/mnt/pool
-Where=/mnt/pool
-Type=nfs
-Options=vers=3
-
-[Install]
-WantedBy=multi-user.target
-
-```
-
-`/etc/systemd/system/mnt-pool.automount`
-```
-[Unit]
-Description=Automount MergerFS Pool
-Requires=network-online.target
-After=network-online.target
-
-[Automount]
-Where=/mnt/pool
-TimeoutIdleSec=0
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable the automount service: `sudo systemctl enable --now mnt-pool.automount`
-
-### Windows Client
-
-For Windows NFS clients, write access often requires `all_squash`
-with a defined anonuid/anongid, because Windows does not send linux uid/gid
-information. Something like this:<br>
-`/mnt/pool 10.0.19.0/24(rw,async,no_subtree_check,all_squash,anonuid=1000,anongid=1000,fsid=1)`
-
-**Windows Client**
-
-* must be windows pro, not windows home
-* add windows component in the control panel - `Services for NFS` - `Client for NFS`
-* cmd, not powershell - `mount \\10.0.19.80\mnt\pool N:`
+* [Instructions here.](https://github.com/DoTheEvo/selfhosted-apps-docker/blob/master/_knowledge-base/mounting_network_share_linux.md)
 
 ---
 ---
