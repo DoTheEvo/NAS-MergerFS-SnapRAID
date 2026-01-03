@@ -7,8 +7,8 @@
 A **NAS** that:
 
   * Allows **mixing** HDDs of various sizes.
-  * Trivial to **add** more storage at any time.
-  * A **parity drive** that protects all data drives.
+  * Easy to **add** more storage at any time.
+  * A **parity drive** that protects against disk failure.
   * Free and **open source**.
 
 But:
@@ -24,11 +24,11 @@ But:
     But that means ideal for media servers - movies, shows, music, photos, audiobooks,...
 
 *A notice*<br>
-Not yet running this setup for actual data.
+Not yet running this setup with actual data.
 This guide is a way to prepare and document for the deployment.
-Also AI - chatgpt and claude was used for scripts and sanity checks.
+Also AI - chatgpt and claude were used for scripts and sanity checks.
 But no blind trust, stuff was investigated, checked against documentation
-and tested many times.
+and thoroughly tested.
 
 ### Chapters:
 
@@ -666,7 +666,16 @@ Test if stuff in shares is as it should be.
 
 #### Permanent Samba mount at boot
 
-Using [systemd mount and automount](https://wiki.archlinux.org/title/Systemd#systemd.mount_-_mounting).<br>
+Systemd mount will be used, but there are two ways to do it.
+
+* **mount** service is enabled<br>
+  straight up mounting at boot, high expectation that the network share
+  is always available during the boot, this is the best for servers, docker hosts,...
+* **automount** service is enabled<br>
+  mounting happens at the first demand to access the network share,
+  does not wait during boot for the mount to really happen,
+  can auto-umount on idle, good for users machines
+
 The name of these service files must be a path of the mount location,
 using dashes `-` instead of slashes `/`
 
@@ -687,7 +696,6 @@ Options=rw,username=bastard,password=aaa,uid=1000,gid=1000,file_mode=0664,dir_mo
 
 [Install]
 WantedBy=multi-user.target
-
 ```
 
 `/etc/systemd/system/mnt-pool.automount`
@@ -705,6 +713,8 @@ TimeoutIdleSec=0
 WantedBy=multi-user.target
 ```
 
+Enable the mount service: `sudo systemctl enable --now mnt-pool.mount`<br>
+or<br>
 Enable the automount service: `sudo systemctl enable --now mnt-pool.automount`
 
 ### Windows Client
@@ -847,10 +857,18 @@ information. Something like this:<br>
 
 ![spindown-gif](https://i.imgur.com/QrhQWQc.gif)
 
-Saves \~3W of power per disk, heat, wear and noise,... but the first time
-accessing the storage takes \~10 seconds..<br>
-Disks might or might not spindown on their own on idle.
+Saves \~3W of power per disk, heat, vibrations, wear, noise,...
+but the first time accessing the storage takes \~5 seconds.
+
+**Disks might or might not spindown on their own on idle without you
+doing anything.**<br>
 Most distros don't force it, but the firmware preset of the disks might.
+
+* command showing the spindown state of every drive:<br>
+  `for d in /dev/sd[a-z]; do echo -n "$d: "; sudo hdparm -C "$d" | grep state; done`
+* See disks activity:<br>
+  `sudo iotop -ao`<br>
+  `sudo blktrace -d /dev/sdd -o - | blkparse -i -`
 
 If you want to **take control** [hdparm](https://linux.die.net/man/8/hdparm)
 can change power saving and idle time.
@@ -883,13 +901,12 @@ Enable the service<br>
 The 2 hours is set by `hdparm -S 244`,
 hdparm uses bit weird [time system](https://linux.die.net/man/8/hdparm).
 
-  * 1 - 240 is multiplies of 5 seconds. So 60 is 5 minutes.
-  * 241 - 251 is multiplies of 30 minutes. So 241=30m, 242=60m, 243=90m,...
+  * 1 - 240 are multipliers of 5 seconds, so 60=300s=5m, 180=900s=15m,...
+  * 241 - 251 are multipliers of 30 minutes, so 241=30m, 242=60m, 243=90m,...
 
 As for the `hdparm -B 127` - the APM range is 1 - 254.
 Lower the number more aggresive power savings.
-The 127 value is a moderate balanced level that will not be more aggresive
-than the desired 2 hours.
+The 127 value is a moderate balanced level that should not override the timer.
 
 ### Prevent spindown 
 
@@ -915,20 +932,14 @@ Enable the service<br>
 ---
 
 Be aware, freshly formated ext4 disks finish their initialization
-in the background. Kernel runs `ext4lazyinit` process that zeroes inodes
+in the background. Kernel runs `ext4lazyinit` process that zeros inodes
 and disks can be heard chirping and doing something even when there should be
 no activity. Though also disks firmware might be doing stuff on its own occasionally.
 
-* A command showing the spindown state of every drive:<br>
-  `for d in /dev/sd[a-z]; do echo -n "$d: "; sudo hdparm -C "$d" | grep state; done`
-* See disks activity:<br>
-  `sudo iotop -ao`<br>
-  `sudo blktrace -d /dev/sdd -o - | blkparse -i -`
-
 ### Monitoring spindowns and spinups
 
-To have a degree of certanty that disks are not spinning down and up
-400 times a day, hastening their demise.
+To have a degree of certainty that disks are not spinning up and down
+400 times a day, accelerating their degradation.
 
 * Create the log script in `/opt/disks-spin-logger.sh`
 
@@ -1068,23 +1079,24 @@ Can do dry run to see what it would do `sudo logrotate -d /etc/logrotate.conf`
 
 ### Case
 
-How big or small, how expensive, how many 3.5"/2.5"/m.2 disks positions?<br>
+Should be the very first thing you decide on.<br>
+How big or small, how expensive, how many 3.5"/2.5" disks positions?
+What motherboard and PSU will fit in it?<br>
 My pick - mATX case from aliexpres - [Sagittarius](https://youtu.be/fjqKEmNot_M)
   
   * was 150€ with shipping
-  * I like the idea of a smaller case, but not too small where
-    ITX motherboards are expensive and much more limiting with PCIE slots.
-    Same with SFX power supplies as they got much more expensive.
+  * I like the idea of a smaller case, but not too small as ITX motherboards are expensive
+    and much more limiting with PCIE slots.
+    SFX power supplies got much more expensive too.
   * 8x 3.5" hot swappable disk bays, sata / sas compatible
   * great cooling with space for 2x 120fans just for disks,
     and another 2x 120 for the mobo section
 
 Other popular cases
 
-  * Jonsbo N line has nice ITX cases, but they kinda dropped the ball
-    with mATX. But upcoming N6 looks promising.
+  * Jonsbo N line has nice stuff
   * Fractal design is often picked, with node line for smaller cases,
-  and Define R5 R6 when big case is not an issues and you want lot of positions.
+    and Define R5 R6 when big case is not an issues and you want lot of positions.
   * [InWin Chopin MAX](https://i.imgur.com/YLXIS21.png) - when 3.5" disks are
     not needed, just want a tiny case.
 
@@ -1117,14 +1129,14 @@ General cards overview - [youtube video](https://youtu.be/hTbKzQZk21w)
 * SAS2008; SAS3008; SAS3408; SAS3808 - specific chip
 * 9211-8i; 9300-8i; 9400-8i; 9500-8i - specific model of a card,
   usually with x8 disks connections
-* various cable types connector - SFF-8087; SFF-8643; SFF-8654;...
+* Various cable connector types - SFF-8087; SFF-8643; SFF-8654;...
 
 9211-8i used to be the go-to recommendation since they are cheap
 and the performance is more than enough for spinning drives.<br>
 Then the price of 9300-8i started to drop and is about 40€,
 So why not get newer hardware...
 
-But then theres power consumption.<br>
+But then theres the power consumption.<br>
 [A video](https://www.youtube.com/watch?v=tQOI2pUUVDE)
 came out measuring power consumption of these, and the 9300 was idling
 at highest 11W, the newer and more expensive 9400 was 7W and 9500 was 6W.
@@ -1132,8 +1144,7 @@ The old 9211 was 7W. So take that in to consideration.
 
 And to repeat, it must be in the IT mode and ideally ordered straight away
 with cables. There are sellers with 99%+ positive feedback with 150k+ items
-sold, so one should not feel scared of buying these.
-I tend to go for Fujitsu cards.
+sold, so one should not be too scared of buying these.
 
 ---
 
@@ -1155,8 +1166,8 @@ You can also go budget option with something like N100 based motherboard,
 like [ASRock N100M](https://www.asrock.com/mb/Intel/N100M/),
 but not having 2.5gbit network card is kinda deal breaker for me.
 
-Currently in my NAS I have old pentium G3240, waiting for me to decide what
-I like to to put in.
+Currently in my NAS I have an old pentium G3240, waiting for me to decide what
+I like to to put in... and then the ram prices happened...
 
 ---
 
@@ -1166,14 +1177,15 @@ I like to to put in.
 
 [PSU tier list](https://www.reddit.com/r/pcmasterrace/comments/1iry3a3/new_and_updated_psu_tier_list_is_out/)
 
-My go-to used to be seasonic, but they started to get expensive with PSUs
-actually manufactured by them.
+My go-to used to be seasonic, but they started to get really expensive
+with the PSUs actually manufactured by them.
 
 Last few years I went with ADATA XPG core reactor II (not the VE version).
 It's manufactured by CWT, has A+ rating on the tier list, 10 years warranty
-and cost me 80€.<br> 
-Switching from a very old seasonic that my NAS had, power consumption went
-from 26W idle to 22W idle. Fucking stiff cables though.
+and costs me 80€.<br> 
+Switching from a very old seasonic that my test NAS had,
+power consumption went from 26W idle to 22W idle.
+Fucking stiff cables though.
 
 ---
 
@@ -1187,18 +1199,19 @@ Plan ahead, higher speed NICs require also higher speed switches.
 
 Started to be really affordable. There are switches from ubiquiti and mikrotik
 and 2.5gbit NICs are really common in new motherboards now.
-So it's not that expensive and usually worth it, as even a single spinnig HDD
+So it's not that expensive and usually worth it, as even a single spinning HDD
 is 2x faster than the pathetic 1gbit network speed.
 
 **10gbit**
 
 People like the idea and the cost of getting there is doable,
-but if in planning stage and your situation allows it...
-plan **not to** go for 10GBase-T, meaning not going for copper twister pair rj45
+but if in the planning stage and your home situation allows it...
+plan **not to** go for 10GBase-T, meaning **not going rj45** copper twisted pair
 cables and buying 10gbit rj45 switches and NICs. They tend to run very hot,
 with high power consumption. But I understand, if you already have cat6a
-cable run... it's bothersome to start to think about cables.<br>
-But if your situation allows, consider going for SFP+ switches and NICs.
+cable run... it's bothersome to start to think about cables again.
+
+But if your situation allows, **consider going for SFP+** switches and NICs.<br>
 For distances under 7m you use cheap and very reliable DAC cables.
 For longer runs its optical with transceivers.<br>
 SFP+ switches run cool enough to be passively cooled.
@@ -1208,8 +1221,7 @@ For 10gbit network cards popular choice is used ebay - intel x520s or x710,
 or Mellanox ConnectX-3, ConnectX-4, ConnectX-5.<br>
 Older cheaper ones, might not support ASPM, which means they will not let
 CPU reach higher states of power saving. X710 has good reputation on that,
-but then it also has reputation that it is very picky about cables and transceivers...
-
+but then it also has reputation that it is very VERY picky about cables and transceivers...
 Some discussion [here,](https://forums.servethehome.com/index.php?threads/sfp-cards-with-aspm-support.36817/)
 some guide [here.](https://www.reddit.com/r/homelab/comments/1jddpus/mellanox_nic_firmwareconfiguration_guide/)
 </details>
@@ -1221,6 +1233,7 @@ some guide [here.](https://www.reddit.com/r/homelab/comments/1jddpus/mellanox_ni
 
 * https://perfectmediaserver.com/02-tech-stack/mergerfs/
 * https://perfectmediaserver.com/03-installation/manual-install-ubuntu/
+* https://www.youtube.com/watch?v=NQJkTiLXfgs
 * https://thenomadcode.tech/mergerfs-snapraid-is-the-new-raid-5
 * https://zackreed.me/snapraid-split-parity-sync-script/
 * https://www.youtube.com/watch?v=Yt67zz9p0FU
